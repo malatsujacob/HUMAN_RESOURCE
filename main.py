@@ -1,7 +1,7 @@
 ﻿from fastapi import FastAPI
 from app.database import engine, Base
 from app.models import department, user, employee, audit_log, leave, contract, attendance, recruitment, performance, disciplinary, payroll
-from app.api import auth, employees, leave as leave_api, modules
+from app.api import auth, employees, leave as leave_api, modules, attendance
 from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
@@ -19,6 +19,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["1. Authentication"])
 app.include_router(employees.router, prefix="/api/employees", tags=["2. Employee Directory"])
 app.include_router(leave_api.router, prefix="/api/leave", tags=["3. Leave Management"])
+app.include_router(attendance.router, prefix="/api/attendance", tags=["4. Attendance"])
 app.include_router(modules.router, prefix="/api", tags=["4. HR Modules"])
 
 @app.get("/")

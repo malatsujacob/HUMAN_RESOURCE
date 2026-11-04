@@ -6,7 +6,6 @@ from app.models.contract import Contract
 from app.models.performance import PerformanceReview
 from app.models.disciplinary import DisciplinaryCase
 from app.models.payroll import Payslip
-from app.models.attendance import Attendance
 
 router = APIRouter()
 
@@ -41,10 +40,6 @@ def get_disciplinary(db: Session = Depends(get_db)):
 @router.get("/payslips")
 def get_payslips(db: Session = Depends(get_db)):
     return db.query(Payslip).all()
-
-@router.get("/attendance")
-def get_attendance(db: Session = Depends(get_db)):
-    return db.query(Attendance).all()
 
 @router.get("/analytics")
 def get_analytics():
