@@ -1,0 +1,251 @@
+.public-apply-page {
+  min-height: 100vh;
+  padding: 25px 20px 50px;
+  background:
+    radial-gradient(ellipse at 50% 0, rgba(113, 87, 229, 0.1), transparent 42%),
+    #f7f8fc;
+}
+
+.apply-brand {
+  display: flex;
+  width: min(680px, 100%);
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 20px;
+}
+
+.apply-card {
+  width: min(680px, 100%);
+  padding: 30px 34px;
+  margin: 0 auto;
+  border: 1px solid #ececf3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(32, 31, 65, 0.055);
+}
+
+.apply-card-heading {
+  position: relative;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.apply-heading-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  margin-bottom: 17px;
+  border-radius: 11px;
+  background: #f0edff;
+  color: #7157e5;
+}
+
+.apply-card-heading .eyebrow {
+  margin-bottom: 8px;
+}
+
+.apply-card-heading h1 {
+  margin: 0;
+  color: #242536;
+  font-family: 'Manrope', 'DM Sans', sans-serif;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+}
+
+.apply-card-heading > p:last-child {
+  margin: 7px 0 0;
+  color: #9292a3;
+  font-size: 11px;
+}
+
+.apply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.apply-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.form-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  color: #505064;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.form-field b {
+  color: #d77870;
+}
+
+.form-field input:not([type='file']),
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  min-height: 39px;
+  padding: 9px 10px;
+  border: 1px solid #e7e7ee;
+  border-radius: 7px;
+  outline: 0;
+  background: #fff;
+  color: #37374b;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.form-field textarea {
+  min-height: 108px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+  border-color: #a99ae9;
+  box-shadow: 0 0 0 3px rgba(113, 87, 229, 0.09);
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: #aaaab7;
+}
+
+.form-field small {
+  color: #9a9aaa;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.word-count {
+  align-self: flex-end;
+}
+
+.word-count.over-limit {
+  color: #bf5953;
+}
+
+.cv-file-input {
+  position: relative;
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px;
+  border: 1px dashed #d9d7e8;
+  border-radius: 8px;
+  background: #fcfbff;
+  color: #7563c3;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.cv-file-input span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cv-file-input input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.apply-submit {
+  min-height: 42px;
+  margin-top: 3px;
+  border: 0;
+  border-radius: 8px;
+  background: #6949e8;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background 150ms ease;
+}
+
+.apply-submit:hover:not(:disabled) {
+  background: #583bd0;
+}
+
+.apply-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.apply-privacy {
+  margin: -5px 0 0;
+  color: #a0a0af;
+  font-size: 9px;
+  text-align: center;
+}
+
+.apply-error {
+  padding: 10px 11px;
+  margin: 0;
+  border-radius: 7px;
+  background: #fff0ef;
+  color: #a64e4a;
+  font-size: 10px;
+}
+
+.apply-success {
+  display: flex;
+  min-height: 280px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #49a476;
+  text-align: center;
+}
+
+.apply-success h2 {
+  margin: 14px 0 0;
+  color: #303044;
+  font-family: 'Manrope', 'DM Sans', sans-serif;
+  font-size: 19px;
+}
+
+.apply-success p {
+  max-width: 360px;
+  margin: 8px 0 18px;
+  color: #9292a3;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.apply-success button {
+  padding: 9px 12px;
+  border: 1px solid #e8e5f7;
+  border-radius: 7px;
+  background: #faf9ff;
+  color: #6048d3;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .public-apply-page {
+    padding: 18px 12px 28px;
+  }
+
+  .apply-card {
+    padding: 22px 17px;
+  }
+
+  .apply-field-grid {
+    grid-template-columns: 1fr;
+  }
+}

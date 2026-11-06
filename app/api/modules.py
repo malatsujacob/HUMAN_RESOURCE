@@ -1,7 +1,6 @@
 ﻿from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
-from app.models.recruitment import JobRequisition, Candidate
 from app.models.contract import Contract
 from app.models.performance import PerformanceReview
 from app.models.disciplinary import DisciplinaryCase
@@ -15,15 +14,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-# Placeholder endpoints for the remaining modules so the frontend can connect
-@router.get("/requisitions")
-def get_requisitions(db: Session = Depends(get_db)):
-    return db.query(JobRequisition).all()
-
-@router.get("/candidates")
-def get_candidates(db: Session = Depends(get_db)):
-    return db.query(Candidate).all()
 
 @router.get("/contracts")
 def get_contracts(db: Session = Depends(get_db)):

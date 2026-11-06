@@ -12,5 +12,5 @@ class Contract(Base):
     start_date = Column(Date)
     end_date = Column(Date)
     base_salary = Column(Numeric(15, 2))
-    status = Column(String(30), default="ACTIVE")
+    status = Column(String(30), default="DRAFT", nullable=False)
     employee = relationship("Employee")

@@ -6,10 +6,11 @@ from app.database import Base
 
 class DisciplinaryCase(Base):
     __tablename__ = "disciplinary_cases"
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id"))
-    incident_date = Column(Date)
-    description = Column(String(500))
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id"), nullable=False)
+    incident_date = Column(Date, nullable=False)
+    description = Column(String(500), nullable=False)
     action_taken = Column(String(255))
-    status = Column(String(30), default="OPEN")
+    status = Column(String(30), nullable=False, default="OPEN")
     employee = relationship("Employee")

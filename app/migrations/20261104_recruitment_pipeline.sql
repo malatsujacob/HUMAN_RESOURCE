@@ -1,0 +1,9 @@
+ALTER TABLE candidates
+    ADD COLUMN IF NOT EXISTS phone VARCHAR(30),
+    ADD COLUMN IF NOT EXISTS education_level VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS experience_years INTEGER,
+    ADD COLUMN IF NOT EXISTS cover_letter TEXT,
+    ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+ALTER TABLE candidates
+    ALTER COLUMN status SET DEFAULT 'APPLIED';

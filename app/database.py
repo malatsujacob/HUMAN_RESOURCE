@@ -1,4 +1,4 @@
-﻿from sqlalchemy import create_engine
+from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from passlib.context import CryptContext
 from jose import jwt
@@ -9,7 +9,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 SECRET_KEY = "chapchap_super_secret_key_2026"
 ALGORITHM = "HS256"
 

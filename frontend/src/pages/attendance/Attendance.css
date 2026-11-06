@@ -1,0 +1,148 @@
+.module-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.module-heading {
+  margin-bottom: 24px;
+}
+
+.module-heading h1 {
+  margin: 0;
+  color: #242536;
+  font-size: 26px;
+}
+
+.module-heading p:last-child,
+.module-section-heading p,
+.attendance-clock-card p {
+  margin: 7px 0 0;
+  color: #7b8190;
+  font-size: 13px;
+}
+
+.attendance-clock-card,
+.module-panel {
+  padding: 22px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+}
+
+.attendance-clock-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.attendance-clock-card h2,
+.module-section-heading h2 {
+  margin: 0;
+  color: #303044;
+  font-size: 16px;
+}
+
+.attendance-clock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border: 1px solid #dfe3eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.module-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 17px;
+}
+
+.module-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e9ebf0;
+  border-radius: 9px;
+}
+
+.module-table {
+  min-width: 640px;
+}
+
+.module-status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.module-status.present,
+.module-status.approved {
+  background: #e8f7ef;
+  color: #388761;
+}
+
+.module-status.late,
+.module-status.pending_hod {
+  background: #fff7e6;
+  color: #9a6b16;
+}
+
+.module-status.absent,
+.module-status.rejected {
+  background: #fff0ef;
+  color: #a64e4a;
+}
+
+.module-message {
+  padding: 24px;
+  color: #7b8190;
+  font-size: 13px;
+  text-align: center;
+}
+
+.module-alert {
+  padding: 11px 14px;
+  margin: 0 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.module-alert.error {
+  background: #fff0ef;
+  color: #a64e4a;
+}
+
+.module-alert.success {
+  background: #eaf7f0;
+  color: #388761;
+}
+
+@media (max-width: 600px) {
+  .attendance-clock-card,
+  .module-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

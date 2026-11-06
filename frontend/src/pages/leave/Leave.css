@@ -1,0 +1,75 @@
+.leave-request-panel {
+  margin-bottom: 22px;
+}
+
+.leave-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.leave-form label {
+  display: grid;
+  gap: 7px;
+  color: #505064;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.leave-form input,
+.leave-form select,
+.leave-form textarea {
+  width: 100%;
+}
+
+.leave-form textarea {
+  resize: vertical;
+}
+
+.leave-reason-field {
+  grid-column: 1 / -1;
+}
+
+.leave-form button {
+  justify-self: start;
+}
+
+.hod-approvals-panel {
+  margin-bottom: 22px;
+}
+
+.leave-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.leave-review-actions button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.leave-approve-button {
+  background: #eaf7f0;
+  color: #388761;
+}
+
+.leave-reject-button {
+  border-color: #f0e9e9 !important;
+  background: #fff;
+  color: #a64e4a;
+}
+
+@media (max-width: 620px) {
+  .leave-form {
+    grid-template-columns: 1fr;
+  }
+
+  .leave-reason-field {
+    grid-column: auto;
+  }
+}
