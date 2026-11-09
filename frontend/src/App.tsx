@@ -1,5 +1,4 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -8,12 +7,16 @@ import OnboardingDashboard from './pages/onboarding/OnboardingDashboard';
 import EmployeeDashboard from './pages/employees/EmployeeDashboard';
 import RecruitmentDashboard from './pages/recruitment/RecruitmentDashboard';
 import PublicApply from './pages/recruitment/PublicApply';
+import OfferResponse from './pages/recruitment/OfferResponse';
+import OnboardingResponse from './pages/onboarding/OnboardingResponse';
 import AttendanceDashboard from './pages/attendance/AttendanceDashboard';
 import LeaveDashboard from './pages/leave/LeaveDashboard';
 import PayrollDashboard from './pages/payroll/PayrollDashboard';
 import PerformanceDashboard from './pages/performance/PerformanceDashboard';
 import DisciplinaryDashboard from './pages/disciplinary/DisciplinaryDashboard';
 import ExitDashboard from './pages/exit/ExitDashboard';
+import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
+import ESSPortal from './pages/ess/ESSPortal';
 
 // Protected Route Wrapper
 function ProtectedRoute({ children }) {
@@ -31,19 +34,23 @@ export default function App() {
         {/* Public Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/apply" element={<PublicApply />} />
+        <Route path="/offer-response" element={<OfferResponse />} />
+        <Route path="/onboarding-response" element={<OnboardingResponse />} />
 
         {/* Protected Routes (Require Login) */}
         <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+        <Route path="/ess" element={<ProtectedRoute><ESSPortal /></ProtectedRoute>} />
         <Route path="/employees" element={<ProtectedRoute><EmployeeDashboard /></ProtectedRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><OnboardingDashboard /></ProtectedRoute>} />
-<Route path="/contracts" element={<ProtectedRoute><ContractsDashboard /></ProtectedRoute>} />
-<Route path="/recruitment" element={<ProtectedRoute><RecruitmentDashboard /></ProtectedRoute>} />
+        <Route path="/contracts" element={<ProtectedRoute><ContractsDashboard /></ProtectedRoute>} />
+        <Route path="/recruitment" element={<ProtectedRoute><RecruitmentDashboard /></ProtectedRoute>} />
         <Route path="/attendance" element={<ProtectedRoute><AttendanceDashboard /></ProtectedRoute>} />
         <Route path="/leave" element={<ProtectedRoute><LeaveDashboard /></ProtectedRoute>} />
         <Route path="/payroll" element={<ProtectedRoute><PayrollDashboard /></ProtectedRoute>} />
         <Route path="/performance" element={<ProtectedRoute><PerformanceDashboard /></ProtectedRoute>} />
         <Route path="/disciplinary" element={<ProtectedRoute><DisciplinaryDashboard /></ProtectedRoute>} />
         <Route path="/exit" element={<ProtectedRoute><ExitDashboard /></ProtectedRoute>} />
+        <Route path="/analytics" element={<ProtectedRoute><AnalyticsDashboard /></ProtectedRoute>} />
         
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

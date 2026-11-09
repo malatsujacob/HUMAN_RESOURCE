@@ -18,7 +18,7 @@ from app.models.user import User
 router = APIRouter()
 LOCAL_TIMEZONE = ZoneInfo("Africa/Kampala")
 STANDARD_WORKDAY = timedelta(hours=8)
-HR_ROLES = {"HR", "HR_ADMIN", "MANAGEMENT"}
+HR_ROLES = {"HR", "HR_ADMIN", "MANAGEMENT", "DEVELOPER"}
 
 
 def get_db():
@@ -206,3 +206,4 @@ def check_out(
     db.commit()
     db.refresh(record)
     return record
+

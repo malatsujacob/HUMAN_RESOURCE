@@ -38,7 +38,7 @@
   height: 36px;
   place-items: center;
   border-radius: 10px;
-  background: #3b82f6;
+  background: #2f7ea5;
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -71,7 +71,7 @@
 }
 
 .hrms-nav-link.active {
-  box-shadow: inset 3px 0 #60a5fa;
+  box-shadow: inset 3px 0 #8ac3dc;
 }
 
 .hrms-main {
@@ -93,6 +93,48 @@
   border-bottom: 1px solid #e5e7eb;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
+}
+
+.hrms-header-context,
+.hrms-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.hrms-header-context {
+  margin-right: auto;
+}
+
+.hrms-page-title {
+  overflow: hidden;
+  color: #1f2937;
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hrms-back-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px 0 5px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hrms-back-button:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #1e293b;
 }
 
 .hrms-role {
@@ -167,7 +209,7 @@
   place-items: center;
   margin-bottom: 14px;
   border-radius: 12px;
-  background: #2563eb;
+  background: #2f7ea5;
   color: #fff;
   font-size: 13px;
   font-weight: 700;
@@ -245,7 +287,7 @@
   height: 39px;
   place-items: center;
   border-radius: 12px;
-  background: #6949e8;
+  background: #2f7ea5;
   color: #fff;
   font-family: 'Manrope', sans-serif;
   font-size: 19px;
@@ -312,13 +354,13 @@
 }
 
 .nav-link:hover {
-  background: #f7f6ff;
-  color: #5940cd;
+  background: #f2f9fc;
+  color: #2f7ea5;
 }
 
 .nav-link.active {
-  background: #f1efff;
-  color: #6248df;
+  background: #eaf5fb;
+  color: #2f7ea5;
   font-weight: 600;
 }
 
@@ -353,8 +395,8 @@
   flex: 0 0 auto;
   place-items: center;
   border-radius: 9px;
-  background: #f1efff;
-  color: #6b50df;
+  background: #eaf5fb;
+  color: #2f7ea5;
 }
 
 .sidebar-footer > div:last-child {
@@ -452,8 +494,8 @@
 }
 
 .icon-button:hover {
-  background: #f7f6ff;
-  color: #6248df;
+  background: #f2f9fc;
+  color: #2f7ea5;
 }
 
 .notification-dot {
@@ -488,8 +530,8 @@
   height: 35px;
   place-items: center;
   border-radius: 11px;
-  background: #e9e4ff;
-  color: #6449d9;
+  background: #eaf5fb;
+  color: #2f7ea5;
   font-size: 11px;
   font-weight: 700;
 }
@@ -510,9 +552,9 @@
 }
 
 .page-content {
-  width: min(1370px, 100%);
-  padding: 38px 42px 48px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  padding: 34px clamp(18px, 3vw, 48px) 48px;
 }
 
 .page-heading {
@@ -567,8 +609,8 @@
 }
 
 .date-filter:hover {
-  border-color: #c9c1f5;
-  color: #6248df;
+  border-color: #c5e1ef;
+  color: #2f7ea5;
 }
 
 .summary-grid {
@@ -606,8 +648,8 @@
 }
 
 .summary-icon.violet {
-  background: #f0edff;
-  color: #7157e5;
+  background: #eaf5fb;
+  color: #2f7ea5;
 }
 
 .summary-icon.green {
@@ -708,7 +750,7 @@
   padding: 5px 0 5px 5px;
   border: 0;
   background: transparent;
-  color: #6b50df;
+  color: #2f7ea5;
   font-size: 10px;
   font-weight: 600;
 }
@@ -830,7 +872,7 @@
   width: 88%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #7056e5, #9e8cf0);
+  background: linear-gradient(90deg, #2f7ea5, #9e8cf0);
 }
 
 .page-placeholder {
@@ -868,34 +910,57 @@
 
 @media (max-width: 760px) {
   .hrms-sidebar {
-    width: 76px;
+    position: sticky;
+    top: 0;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
     align-items: center;
-    padding: 18px 8px;
+    gap: 12px;
+    overflow-x: auto;
+    padding: 10px 12px;
   }
 
   .hrms-brand {
+    flex: 0 0 auto;
     padding: 0;
-    margin-bottom: 28px;
+    margin: 0;
   }
 
-  .hrms-brand > span:last-child,
-  .hrms-nav-link > span {
+  .hrms-brand > span:last-child {
     display: none;
   }
 
+  .hrms-navigation {
+    min-width: 0;
+    flex-direction: row;
+    gap: 5px;
+  }
+
   .hrms-nav-link {
-    width: 46px;
-    justify-content: center;
-    padding: 0;
+    min-height: 38px;
+    flex: 0 0 auto;
+    gap: 7px;
+    padding: 0 10px;
+    font-size: 11px;
   }
 
   .hrms-main {
-    margin-left: 76px;
+    margin-left: 0;
   }
 
   .hrms-header {
     min-height: 60px;
-    padding: 0 16px;
+    padding: 0 14px;
+  }
+
+  .hrms-header-context,
+  .hrms-header-actions {
+    gap: 8px;
+  }
+
+  .hrms-role {
+    display: none;
   }
 
   .page-content {
@@ -1019,4 +1084,29 @@
   .panel {
     padding: 16px;
   }
+}
+
+/* Brand palette: light blue, white, and restrained red accents. */
+.hrms-sidebar {
+  border-right: 1px solid #dce8ee;
+  background: #fff;
+  color: #243746;
+}
+
+.hrms-nav-link {
+  color: #617888;
+}
+
+.hrms-nav-link:hover,
+.hrms-nav-link.active {
+  background: #eaf5fb;
+  color: #256987;
+}
+
+.hrms-nav-link.active {
+  box-shadow: inset 3px 0 #2f7ea5;
+}
+
+.hrms-brand {
+  color: #243746;
 }

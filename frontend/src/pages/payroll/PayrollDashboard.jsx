@@ -7,7 +7,7 @@ import {
 } from '../../api/payroll.js'
 import './Payroll.css'
 
-const COMPANY_PAYROLL_ROLES = new Set(['HR', 'HR_ADMIN', 'FINANCE', 'MANAGEMENT'])
+const COMPANY_PAYROLL_ROLES = new Set(['HR', 'HR_ADMIN', 'FINANCE', 'MANAGEMENT', 'DEVELOPER'])
 
 function formatCurrency(value) {
   return new Intl.NumberFormat(undefined, {

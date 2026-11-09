@@ -6,7 +6,7 @@ import {
 } from '../../api/peopleModules.js'
 import '../ModuleDashboards.css'
 
-const HR_ROLES = new Set(['HR', 'HR_ADMIN'])
+const HR_ROLES = new Set(['HR', 'HR_ADMIN', 'DEVELOPER'])
 
 function DisciplinaryDashboard() {
   const role = (window.localStorage.getItem('role') || '').toUpperCase()

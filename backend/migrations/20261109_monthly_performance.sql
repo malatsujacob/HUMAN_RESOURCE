@@ -1,0 +1,12 @@
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS self_comment TEXT;
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS punctuality VARCHAR(30);
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS overtime_worked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS task_completion VARCHAR(30);
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS efficiency VARCHAR(30);
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS quality_of_work VARCHAR(30);
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS teamwork VARCHAR(30);
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS behavior_rating INTEGER;
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
+ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS rated_at TIMESTAMPTZ;
+ALTER TABLE performance_reviews ALTER COLUMN hod_comments TYPE VARCHAR(1000);
+CREATE INDEX IF NOT EXISTS ix_performance_period_rating ON performance_reviews (review_period, hod_rating);

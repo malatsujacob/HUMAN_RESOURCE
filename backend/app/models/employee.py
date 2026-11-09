@@ -1,4 +1,4 @@
-﻿import uuid
+import uuid
 from sqlalchemy import Column, String, Date, Numeric, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -12,7 +12,15 @@ class Employee(Base):
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
     personal_email = Column(String(255))
+    work_email = Column(String(255))
     phone_number = Column(String(30))
+    home_address = Column(String(500))
+    father_name = Column(String(200))
+    mother_name = Column(String(200))
+    next_of_kin_name = Column(String(200))
+    next_of_kin_relationship = Column(String(100))
+    next_of_kin_phone = Column(String(30))
+    next_of_kin_address = Column(String(500))
     national_id = Column(String(30), unique=True)
     department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id"))
     job_title = Column(String(100))
@@ -26,3 +34,4 @@ class Employee(Base):
     
     department = relationship("Department")
     user_account = relationship("User", back_populates="employee", uselist=False)
+    documents = relationship("EmployeeDocument", back_populates="employee", cascade="all, delete-orphan")

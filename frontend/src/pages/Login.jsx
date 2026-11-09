@@ -15,7 +15,7 @@ export default function Login() {
       localStorage.setItem('token', res.data.access_token);
       localStorage.setItem('role', res.data.role);
       localStorage.setItem('email', res.data.email);
-      navigate('/');
+      navigate(['HOD', 'DEVELOPER'].includes(String(res.data.role || '').toUpperCase()) ? '/ess?section=performance' : '/');
     } catch (err) {
       setError('Invalid email or password.');
     }

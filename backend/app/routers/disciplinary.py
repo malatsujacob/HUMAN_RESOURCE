@@ -7,13 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.attendance import get_current_user, get_db
+from app.routers.attendance import get_current_user, get_db
 from app.models.disciplinary import DisciplinaryCase
 from app.models.employee import Employee
 from app.models.user import User
 
 router = APIRouter()
-HR_ROLES = {"HR", "HR_ADMIN"}
+HR_ROLES = {"HR", "HR_ADMIN", "DEVELOPER"}
 
 
 class DisciplinaryCaseCreate(BaseModel):

@@ -5,7 +5,7 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  const token = window.localStorage.getItem('access_token')
+  const token = window.localStorage.getItem('token') || window.localStorage.getItem('access_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -15,8 +15,13 @@ export async function getPerformanceReviews() {
   return data
 }
 
+export async function getQuarterlyPerformanceRanking(quarter) {
+  const { data } = await api.get('/performance/quarterly-ranking', { params: { quarter } })
+  return data
+}
+
 export async function submitPerformanceReview(review) {
-  const { data } = await api.post('/performance/', review)
+  const { data } = await api.post('/performance/self', review)
   return data
 }
 

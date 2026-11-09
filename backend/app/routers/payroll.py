@@ -8,13 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.attendance import get_current_user, get_db
+from app.routers.attendance import get_current_user, get_db
 from app.models.employee import Employee
 from app.models.payroll import Payslip
 from app.models.user import User
 
 router = APIRouter()
-PAYROLL_ROLES = {"HR", "HR_ADMIN", "FINANCE", "MANAGEMENT"}
+PAYROLL_ROLES = {"HR", "HR_ADMIN", "FINANCE", "MANAGEMENT", "DEVELOPER"}
 CENT = Decimal("0.01")
 
 

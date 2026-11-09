@@ -1,0 +1,149 @@
+.offer-response-page {
+  min-height: 100vh;
+  padding: 28px 20px;
+  background: #f7f7fb;
+}
+
+.offer-response-brand {
+  display: flex;
+  max-width: 760px;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 34px;
+  color: #303044;
+  font-size: 13px;
+}
+
+.offer-response-brand > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.offer-response-brand small {
+  color: #9292a3;
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+
+.offer-response-card {
+  max-width: 520px;
+  padding: 32px;
+  margin: 0 auto;
+  border: 1px solid #ececf3;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 35px rgb(35 35 65 / 5%);
+}
+
+.offer-response-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  background: #eaf5fb;
+  color: #2f7ea5;
+}
+
+.offer-response-card .eyebrow {
+  margin: 0 0 8px;
+  color: #77778b;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.offer-response-card h1 {
+  margin: 0;
+  color: #303044;
+  font-size: 24px;
+}
+
+.offer-response-description,
+.offer-response-footnote {
+  color: #79798c;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.offer-response-reason {
+  display: grid;
+  gap: 7px;
+  margin: 24px 0 16px;
+  color: #55556b;
+  font-size: 12px;
+}
+
+.offer-response-reason textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #e5e5ee;
+  border-radius: 8px;
+  color: #303044;
+  font: inherit;
+  resize: vertical;
+}
+
+.offer-response-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.offer-response-actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #2f7ea5;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.offer-response-actions .offer-decline {
+  border-color: #e5e5ee;
+  background: white;
+  color: #77778b;
+}
+
+.offer-response-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.offer-response-error,
+.offer-response-success {
+  padding: 11px 12px;
+  margin: 18px 0;
+  border-radius: 8px;
+  background: #fff0ef;
+  color: #a64e4a;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.offer-response-success {
+  background: #eaf7f0;
+  color: #388761;
+}
+
+.offer-response-success p {
+  margin: 7px 0 0;
+}
+
+.offer-response-footnote {
+  margin-bottom: 0;
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .offer-response-page {
+    padding: 20px 14px;
+  }
+
+  .offer-response-card {
+    padding: 23px;
+  }
+}

@@ -79,7 +79,7 @@ function LeaveDashboard() {
         </form>
       </section>
 
-      {role === 'HOD' && <HODApprovals />}
+      {(role === 'HOD' || role === 'DEVELOPER') && <HODApprovals />}
     </section>
   )
 }

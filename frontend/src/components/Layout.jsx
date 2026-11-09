@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   CalendarDays,
   ChartNoAxesCombined,
+  ChevronLeft,
   FileText,
   LayoutDashboard,
   LogOut,
@@ -12,10 +13,11 @@ import {
   Users,
   UserRoundPlus,
 } from 'lucide-react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 const navigationItems = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard },
+  { label: 'ESS Portal', path: '/ess', icon: UserRoundPlus },
   { label: 'Employees', path: '/employees', hideForStaff: true, icon: Users },
   { label: 'Recruitment', path: '/recruitment', hideForStaff: true, icon: BriefcaseBusiness },
   { label: 'Onboarding', path: '/onboarding', icon: UserRoundPlus },
@@ -33,7 +35,7 @@ function getUserRole() {
   const savedRole = window.localStorage.getItem('role')
   if (savedRole) return savedRole
 
-  const token = window.localStorage.getItem('access_token')
+  const token = window.localStorage.getItem('token') || window.localStorage.getItem('access_token')
   if (!token) return 'Guest'
 
   try {
@@ -49,10 +51,21 @@ function getUserRole() {
 
 function Layout({ children }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const role = getUserRole()
+  const currentPage = navigationItems.find((item) => item.path === location.pathname)
+
+  function handleBack() {
+    if (window.history.state?.idx > 0) {
+      navigate(-1)
+      return
+    }
+    navigate('/', { replace: true })
+  }
 
   function handleLogout() {
     window.localStorage.removeItem('access_token')
+    window.localStorage.removeItem('token')
     window.localStorage.removeItem('role')
     window.localStorage.removeItem('email')
     navigate('/login', { replace: true })
@@ -67,7 +80,7 @@ function Layout({ children }) {
         </NavLink>
 
         <nav className="hrms-navigation" aria-label="Main navigation">
-          {navigationItems.map(({ label, path, icon: Icon }) => (
+          {navigationItems.filter(item => !(role.toUpperCase() === 'HOD' && item.path === '/performance')).map(({ label, path, icon: Icon }) => (
             <NavLink
               key={path}
               to={path}
@@ -85,13 +98,24 @@ function Layout({ children }) {
 
       <div className="hrms-main">
         <header className="hrms-header">
-          <span className="hrms-role">
-            Role: <strong>{role}</strong>
-          </span>
-          <button className="hrms-logout" type="button" onClick={handleLogout}>
-            <LogOut size={16} aria-hidden="true" />
-            Logout
-          </button>
+          <div className="hrms-header-context">
+            {location.pathname !== '/' && (
+              <button className="hrms-back-button" type="button" onClick={handleBack} aria-label="Go back">
+                <ChevronLeft size={18} aria-hidden="true" />
+                <span>Back</span>
+              </button>
+            )}
+            <span className="hrms-page-title">{currentPage?.label || 'HR workspace'}</span>
+          </div>
+          <div className="hrms-header-actions">
+            <span className="hrms-role">
+              Role: <strong>{role}</strong>
+            </span>
+            <button className="hrms-logout" type="button" onClick={handleLogout}>
+              <LogOut size={16} aria-hidden="true" />
+              Logout
+            </button>
+          </div>
         </header>
         <main className="page-content">{children ?? <Outlet />}</main>
       </div>

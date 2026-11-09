@@ -6,7 +6,7 @@ import {
 } from '../../api/peopleModules.js'
 import '../ModuleDashboards.css'
 
-const HR_ROLES = new Set(['HR', 'HR_ADMIN'])
+const HR_ROLES = new Set(['HR', 'HR_ADMIN', 'DEVELOPER'])
 const CLEARANCE_ITEMS = ['Department handover', 'Finance clearance', 'Equipment return', 'HR exit interview']
 
 function ExitDashboard() {

@@ -3,15 +3,13 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from passlib.context import CryptContext
 from jose import jwt
 from datetime import datetime, timedelta
+from app.config import ALGORITHM, DATABASE_URL, SECRET_KEY
 
-DATABASE_URL = "postgresql://postgres:Jack.02.+ma@localhost:5432/HUMAN_RESOURCE"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-SECRET_KEY = "chapchap_super_secret_key_2026"
-ALGORITHM = "HS256"
 
 def get_password_hash(password):
     return pwd_context.hash(password)

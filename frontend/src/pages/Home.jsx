@@ -38,7 +38,7 @@ const summaryCards = [
   },
   {
     label: 'Monthly payroll',
-    value: 'KES 8.42M',
+    value: 'UGX 8.42M',
     detail: 'Scheduled for 28 Nov',
     change: '+3.8%',
     direction: 'up',
