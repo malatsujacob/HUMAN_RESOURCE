@@ -1,0 +1,12 @@
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS legacy_employee_id INTEGER;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS legacy_role VARCHAR(50);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS legacy_department VARCHAR(100);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS nationality VARCHAR(100);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS reporting_manager VARCHAR(200);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_location VARCHAR(200);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_type VARCHAR(30);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS probation_period VARCHAR(50);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS notice_period VARCHAR(50);
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS contract_end_date DATE;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_employees_legacy_employee_id ON employees (legacy_employee_id);

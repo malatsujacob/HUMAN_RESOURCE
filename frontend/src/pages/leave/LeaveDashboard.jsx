@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { requestLeave, getLeaveError } from '../../api/leave.js'
+import FlexibleSelect from '../../components/FlexibleSelect'
 import HODApprovals from './HODApprovals.jsx'
 import './Leave.css'
 
@@ -8,6 +9,7 @@ function LeaveDashboard() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [leaveType, setLeaveType] = useState('ANNUAL')
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -24,6 +26,7 @@ function LeaveDashboard() {
         reason: formData.get('reason').trim(),
       })
       event.currentTarget.reset()
+      setLeaveType('ANNUAL')
       setNotice('Your leave request has been submitted for approval.')
     } catch (requestError) {
       setError(getLeaveError(requestError))
@@ -55,11 +58,7 @@ function LeaveDashboard() {
         <form className="leave-form" onSubmit={handleSubmit}>
           <label>
             Leave type
-            <select name="leave_type" defaultValue="ANNUAL" required>
-              <option value="ANNUAL">Annual</option>
-              <option value="SICK">Sick</option>
-              <option value="MATERNITY">Maternity</option>
-            </select>
+            <FlexibleSelect name="leave_type" value={leaveType} onChange={event => setLeaveType(event.target.value)} options={ [['ANNUAL','Annual'],['SICK','Sick'],['MATERNITY','Maternity'],['OTHER','Other']] } placeholder="Select leave type" required/>
           </label>
           <label>
             Start date
@@ -70,8 +69,8 @@ function LeaveDashboard() {
             <input name="end_date" type="date" required />
           </label>
           <label className="leave-reason-field">
-            Reason
-            <textarea name="reason" maxLength="255" rows="4" required />
+            Reason{leaveType === 'OTHER' ? ' (describe the leave type and reason)' : ''}
+            <textarea name="reason" placeholder={leaveType === 'OTHER' ? 'Describe the type of leave you need and why you are requesting it.' : 'Explain why you are requesting this leave.'} maxLength="255" rows="4" required />
           </label>
           <button className="btn-primary" type="submit" disabled={submitting}>
             {submitting ? 'Submitting…' : 'Submit request'}

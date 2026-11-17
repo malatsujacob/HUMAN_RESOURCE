@@ -7,6 +7,7 @@ function HODApprovals() {
   const [busyRequest, setBusyRequest] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [decisionNotes, setDecisionNotes] = useState({})
 
   const loadRequests = useCallback(async () => {
     setError('')
@@ -29,7 +30,8 @@ function HODApprovals() {
     setNotice('')
     try {
       const action = decision === 'APPROVED' ? 'approve' : 'reject'
-      await reviewLeave(requestId, action)
+      await reviewLeave(requestId, action, decisionNotes[requestId]?.trim())
+      setDecisionNotes(notes => ({ ...notes, [requestId]: '' }))
       setNotice(`Leave request ${decision.toLowerCase()}.`)
       await loadRequests()
     } catch (requestError) {
@@ -65,23 +67,23 @@ function HODApprovals() {
                 <th>Employee</th>
                 <th>Type</th>
                 <th>Dates</th>
-                <th>Reason</th>
+                <th>Reason and HOD note</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {requests.map((request) => (
                 <tr key={request.id}>
-                  <td>{request.employee_id}</td>
+                  <td><strong>{request.employee_name || request.employee_id}</strong><small style={{display:"block"}}>{request.employee_number}  -  {request.department_name || "Department"}</small></td>
                   <td>{request.leave_type}</td>
                   <td>{request.start_date} – {request.end_date}</td>
-                  <td>{request.reason}</td>
+                  <td><p>{request.reason}</p><textarea rows="2" maxLength="255" required minLength="5" placeholder="Add the reason for your decision" value={decisionNotes[request.id] || ""} onChange={event => setDecisionNotes(notes => ({ ...notes, [request.id]: event.target.value }))} aria-label={`HOD decision note for ${request.employee_name || "employee"}`} /></td>
                   <td>
                     <div className="leave-review-actions">
                       <button
                         className="leave-approve-button"
                         type="button"
-                        disabled={busyRequest === request.id}
+                        disabled={busyRequest === request.id || (decisionNotes[request.id] || "").trim().length < 5}
                         onClick={() => handleReview(request.id, 'APPROVED')}
                       >
                         Approve
@@ -89,7 +91,7 @@ function HODApprovals() {
                       <button
                         className="leave-reject-button"
                         type="button"
-                        disabled={busyRequest === request.id}
+                        disabled={busyRequest === request.id || (decisionNotes[request.id] || "").trim().length < 5}
                         onClick={() => handleReview(request.id, 'REJECTED')}
                       >
                         Reject

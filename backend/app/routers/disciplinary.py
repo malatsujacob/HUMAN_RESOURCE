@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -13,7 +13,7 @@ from app.models.employee import Employee
 from app.models.user import User
 
 router = APIRouter()
-HR_ROLES = {"HR", "HR_ADMIN", "DEVELOPER"}
+HR_ROLES = {"HR", "HR_ADMIN", "ADMIN", "MANAGEMENT", "DEVELOPER"}
 
 
 class DisciplinaryCaseCreate(BaseModel):
@@ -21,6 +21,9 @@ class DisciplinaryCaseCreate(BaseModel):
     incident_date: date
     description: str = Field(min_length=1, max_length=500)
     action_taken: Optional[str] = Field(default=None, max_length=255)
+
+class DisciplinaryCaseResolution(BaseModel):
+    resolution_note: str = Field(min_length=5, max_length=1000)
 
 
 class DisciplinaryCaseResponse(BaseModel):
@@ -32,6 +35,9 @@ class DisciplinaryCaseResponse(BaseModel):
     description: str
     action_taken: Optional[str]
     status: str
+    resolution_note: Optional[str] = None
+    resolved_by: Optional[UUID] = None
+    resolved_at: Optional[datetime] = None
 
 
 def require_hr(user: User) -> None:
@@ -75,3 +81,31 @@ def list_cases(
 ):
     require_hr(user)
     return db.query(DisciplinaryCase).order_by(DisciplinaryCase.incident_date.desc()).all()
+
+
+@router.put("/{case_id}/resolve", response_model=DisciplinaryCaseResponse)
+def resolve_case(
+    case_id: UUID,
+    request: DisciplinaryCaseResolution,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    case = db.query(DisciplinaryCase).filter(DisciplinaryCase.id == case_id).with_for_update().first()
+    if case is None:
+        raise HTTPException(status_code=404, detail="Disciplinary case not found.")
+    if case.status != "OPEN":
+        raise HTTPException(status_code=409, detail="Only open disciplinary cases can be resolved.")
+    case.resolution_note = request.resolution_note.strip()
+    if not case.resolution_note:
+        raise HTTPException(status_code=422, detail="Resolution note cannot be blank.")
+    case.status = "RESOLVED"
+    case.resolved_by = user.id
+    case.resolved_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+    db.refresh(case)
+    return case

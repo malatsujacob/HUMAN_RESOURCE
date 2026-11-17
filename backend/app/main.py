@@ -1,6 +1,6 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from app.database import engine, Base
-from app.models import department, user, employee, employee_document, audit_log, leave, contract, attendance, recruitment, performance, notification, disciplinary, payroll, exit
+from app.models import department, user, employee, employee_document, audit_log, leave, contract, attendance, recruitment, performance, notification, disciplinary, payroll, exit, training
 from app.routers import (
     auth,
     contracts,
@@ -14,6 +14,8 @@ from app.routers import (
     exit as exit_api,
     onboarding,
     recruitment,
+    notifications,
+    training as training_api,
 )
 from app.services.migrations import (
     upgrade_leave_approval,
@@ -22,7 +24,15 @@ from app.services.migrations import (
     upgrade_recruitment_workflow,
     upgrade_recruitment_onboarding,
     upgrade_monthly_performance,
-)
+    upgrade_employee_profile_auth,
+    upgrade_leave_audit,
+    upgrade_legacy_employee_profile,
+    upgrade_employee_profile_photo,
+    upgrade_contract_workflow,
+    upgrade_hr_action_queues,
+    upgrade_payroll_controls,
+
+    upgrade_performance_nominations,)
 from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
@@ -30,8 +40,16 @@ upgrade_recruitment_pipeline()
 upgrade_recruitment_workflow()
 upgrade_recruitment_onboarding()
 upgrade_monthly_performance()
+upgrade_performance_nominations()
+upgrade_employee_profile_auth()
 upgrade_onboarding_contracts()
 upgrade_leave_approval()
+upgrade_leave_audit()
+upgrade_legacy_employee_profile()
+upgrade_employee_profile_photo()
+upgrade_contract_workflow()
+upgrade_hr_action_queues()
+upgrade_payroll_controls()
 
 app = FastAPI(title="Chap Chap HRMS - Secure Backend")
 
@@ -48,6 +66,7 @@ app.include_router(employees.router, prefix="/api/employees", tags=["2. Employee
 app.include_router(leave_api.router, prefix="/api/leave", tags=["3. Leave Management"])
 app.include_router(attendance.router, prefix="/api/attendance", tags=["4. Attendance"])
 app.include_router(recruitment.router, prefix="/api/recruitment", tags=["5. Recruitment"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["12. Notifications"])
 app.include_router(onboarding.router, prefix="/api/onboarding", tags=["6. Onboarding"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["7. Contracts"])
 app.include_router(payroll_api.router, prefix="/api/payroll", tags=["8. Payroll"])
@@ -55,6 +74,7 @@ app.include_router(performance_api.router, prefix="/api/performance", tags=["9. 
 app.include_router(disciplinary_api.router, prefix="/api/disciplinary", tags=["10. Disciplinary"])
 app.include_router(exit_api.router, prefix="/api/exit", tags=["11. Exit & Clearance"])
 app.include_router(modules.router, prefix="/api", tags=["4. HR Modules"])
+app.include_router(training_api.router, prefix="/api/training", tags=["13. Training"])
 
 @app.get("/")
 def home():

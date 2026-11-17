@@ -1,149 +1,121 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  generatePayroll,
-  getCompanyPayslips,
-  getMyPayslips,
-  getPayrollError,
-} from '../../api/payroll.js'
-import './Payroll.css'
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 
-const COMPANY_PAYROLL_ROLES = new Set(['HR', 'HR_ADMIN', 'FINANCE', 'MANAGEMENT', 'DEVELOPER'])
+export default function PayrollDashboard() {
+  const [runs, setRuns] = useState([]);
+  const [payslips, setPayslips] = useState([]);
+  const [selectedRun, setSelectedRun] = useState(null);
+  const [showRunModal, setShowRunModal] = useState(false);
+  
+  // Step 3: Audience Filter
+  const [runData, setRunData] = useState({ pay_period: '', target_audience: 'Entire Company' });
+  const role = localStorage.getItem('role');
+  const isHR = ['HR', 'MANAGEMENT', 'FINANCE'].includes(role);
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'UGX',
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0))
-}
+  useEffect(() => { fetchRuns(); }, []);
 
-function PayslipTable({ payslips, loading, companyView }) {
-  if (loading) {
-    return <p className="payroll-message" role="status">Loading payslips…</p>
-  }
-  if (payslips.length === 0) {
-    return <p className="payroll-message">No payslips are available yet.</p>
-  }
+  const fetchRuns = async () => {
+    const res = await axios.get('http://localhost:8000/api/payroll/runs');
+    setRuns(res.data);
+  };
 
-  return (
-    <div className="payroll-table-wrap">
-      <table className="payroll-table">
-        <thead>
-          <tr>
-            {companyView && <th>Employee ID</th>}
-            <th>Pay period</th>
-            <th>Gross salary</th>
-            <th>PAYE tax</th>
-            <th>NSSF deduction</th>
-            <th>Net salary</th>
-          </tr>
-        </thead>
-        <tbody>
-          {payslips.map((payslip) => (
-            <tr key={payslip.id}>
-              {companyView && <td>{payslip.employee_id}</td>}
-              <td>{payslip.pay_period}</td>
-              <td>{formatCurrency(payslip.gross_salary)}</td>
-              <td>{formatCurrency(payslip.paye_tax)}</td>
-              <td>{formatCurrency(payslip.nssf_deduction)}</td>
-              <td className="payroll-net">{formatCurrency(payslip.net_salary)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+  const handleCreateRun = async (e) => {
+    e.preventDefault();
+    await axios.post('http://localhost:8000/api/payroll/runs', runData);
+    setShowRunModal(false);
+    fetchRuns();
+    alert("Payroll run generated and is pending approval.");
+  };
 
-function PayrollDashboard() {
-  const role = (window.localStorage.getItem('role') || '').toUpperCase()
-  const canManagePayroll = COMPANY_PAYROLL_ROLES.has(role)
-  const [payslips, setPayslips] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const handleApprove = async (id) => {
+    await axios.put(`http://localhost:8000/api/payroll/runs/${id}/approve`);
+    fetchRuns();
+    alert("Payroll Approved! Payslips generated.");
+  };
 
-  const loadPayslips = useCallback(async () => {
-    setError('')
-    try {
-      setPayslips(
-        canManagePayroll ? await getCompanyPayslips() : await getMyPayslips(),
-      )
-    } catch (requestError) {
-      setError(getPayrollError(requestError))
-    } finally {
-      setLoading(false)
-    }
-  }, [canManagePayroll])
-
-  useEffect(() => {
-    loadPayslips()
-  }, [loadPayslips])
-
-  const currentPayPeriod = useMemo(() => {
-    const today = new Date()
-    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
-  }, [])
-
-  async function handleGeneratePayroll() {
-    setGenerating(true)
-    setError('')
-    setNotice('')
-    try {
-      const result = await generatePayroll(currentPayPeriod)
-      setNotice(
-        `Payroll generated for ${result.pay_period}: ${result.generated_count} payslip(s) created, ${result.skipped_count} already existed.`,
-      )
-      await loadPayslips()
-    } catch (requestError) {
-      setError(getPayrollError(requestError))
-    } finally {
-      setGenerating(false)
-    }
-  }
+  const viewPayslips = async (run) => {
+    const res = await axios.get(`http://localhost:8000/api/payroll/runs/${run.id}/payslips`);
+    setPayslips(res.data);
+    setSelectedRun(run);
+  };
 
   return (
-    <section className="payroll-page">
-      <header className="payroll-heading">
-        <div>
-          <p className="eyebrow">COMPENSATION</p>
-          <h1>Payroll</h1>
-          <p>{canManagePayroll ? 'Review company payslips and run monthly payroll.' : 'Review your personal payslips.'}</p>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h1>Payroll Management</h1>
+        {isHR && <button className="btn-primary" onClick={() => setShowRunModal(true)}>+ Initiate Payroll Run</button>}
+      </div>
+      
+      <div className="card">
+        <h2>Payroll Runs</h2>
+        <table>
+          <thead><tr><th>Period</th><th>Audience</th><th>Total Gross</th><th>Total Net</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {runs.map(r => (
+              <tr key={r.id}>
+                <td><strong>{r.pay_period}</strong></td>
+                <td>{r.target_audience}</td>
+                <td>UGX {r.total_gross?.toLocaleString()}</td>
+                <td>UGX {r.total_net?.toLocaleString()}</td>
+                <td>
+                  <span style={{ padding: '4px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', 
+                    background: r.status === 'APPROVED' ? '#dcfce7' : '#fef9c3', 
+                    color: r.status === 'APPROVED' ? '#166534' : '#854d0e' }}>
+                    {r.status}
+                  </span>
+                </td>
+                <td>
+                  {r.status === 'PENDING_APPROVAL' && isHR && (
+                    <button className="btn-primary" style={{ background: '#16a34a', padding: '6px 12px', fontSize: '12px', marginRight: '10px' }} onClick={() => handleApprove(r.id)}>Approve</button>
+                  )}
+                  <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => viewPayslips(r)}>View Payslips</button>
+                </td>
+              </tr>
+            ))}
+            {runs.length === 0 && <tr><td colSpan="6" style={{ textAlign: 'center' }}>No payroll runs initiated yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedRun && (
+        <div className="card" style={{ marginTop: '20px', borderTop: '4px solid #2563eb' }}>
+          <h2>Payslips for {selectedRun.pay_period}</h2>
+          <table>
+            <thead><tr><th>Employee</th><th>Gross Pay</th><th>Net Pay</th><th>Action</th></tr></thead>
+            <tbody>
+              {payslips.map(p => (
+                <tr key={p.id}>
+                  <td>{p.employee_name}</td>
+                  <td>UGX {p.gross.toLocaleString()}</td>
+                  <td style={{ fontWeight: 'bold' }}>UGX {p.net.toLocaleString()}</td>
+                  <td><button className="btn-primary" style={{ padding: '5px 10px', fontSize: '12px', background: '#64748b' }}>Download PDF</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {canManagePayroll && (
-          <button
-            className="btn-primary"
-            type="button"
-            onClick={handleGeneratePayroll}
-            disabled={generating}
-          >
-            {generating ? 'Generating…' : `Run Payroll for Current Month (${currentPayPeriod})`}
-          </button>
-        )}
-      </header>
+      )}
 
-      {error && <p className="payroll-alert error" role="alert">{error}</p>}
-      {notice && <p className="payroll-alert success" role="status">{notice}</p>}
-
-      <section className="payroll-panel">
-        <div className="payroll-section-heading">
-          <div>
-            <h2>{canManagePayroll ? 'Company payslips' : 'My payslips'}</h2>
-            <p>{canManagePayroll ? 'Payslips across all available pay periods.' : 'Your salary and deductions by pay period.'}</p>
+      {showRunModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div className="card" style={{ width: '400px' }}>
+            <h2>Initiate Payroll Run</h2>
+            <form onSubmit={handleCreateRun}>
+              <div className="input-group"><label>Pay Period</label><input type="text" placeholder="e.g. October 2026" required value={runData.pay_period} onChange={e => setRunData({...runData, pay_period: e.target.value})} /></div>
+              <div className="input-group">
+                <label>Target Audience Filter</label>
+                <select value={runData.target_audience} onChange={e => setRunData({...runData, target_audience: e.target.value})}>
+                  <option>Entire Company</option>
+                  <option>One Department</option>
+                  <option>HODs Only</option>
+                  <option>Specific Individuals</option>
+                </select>
+              </div>
+              <button type="submit" className="btn-primary" style={{ width: '100%' }}>Calculate & Generate</button>
+            </form>
           </div>
-          <button className="payroll-refresh" type="button" onClick={loadPayslips} disabled={loading}>
-            Refresh
-          </button>
         </div>
-        <PayslipTable
-          payslips={payslips}
-          loading={loading}
-          companyView={canManagePayroll}
-        />
-      </section>
-    </section>
-  )
+      )}
+    </div>
+  );
 }
-
-export default PayrollDashboard

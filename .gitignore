@@ -17,3 +17,6 @@ build/
 
 # IDE
 .vscode/
+
+# Ignore local backup files
+*.bak

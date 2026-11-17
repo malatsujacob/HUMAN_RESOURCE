@@ -15,7 +15,9 @@ export default function Login() {
       localStorage.setItem('token', res.data.access_token);
       localStorage.setItem('role', res.data.role);
       localStorage.setItem('email', res.data.email);
-      navigate(['HOD', 'DEVELOPER'].includes(String(res.data.role || '').toUpperCase()) ? '/ess?section=performance' : '/');
+      localStorage.setItem('must_change_password', String(Boolean(res.data.must_change_password)));
+      const role = String(res.data.role || '').toUpperCase();
+      navigate(res.data.must_change_password ? '/change-password' : ['HOD', 'DEVELOPER'].includes(role) ? '/ess?section=performance' : '/');
     } catch (err) {
       setError('Invalid email or password.');
     }

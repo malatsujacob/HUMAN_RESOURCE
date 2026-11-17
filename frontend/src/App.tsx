@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import ContractsDashboard from './pages/contracts/ContractsDashboard';
@@ -17,13 +18,18 @@ import DisciplinaryDashboard from './pages/disciplinary/DisciplinaryDashboard';
 import ExitDashboard from './pages/exit/ExitDashboard';
 import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
 import ESSPortal from './pages/ess/ESSPortal';
+import TrainingDashboard from './pages/training/TrainingDashboard';
 
 // Protected Route Wrapper
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('token');
+  const location = useLocation();
   if (!token) {
     return <Navigate to="/login" replace />;
   }
+  const mustChangePassword = localStorage.getItem('must_change_password') === 'true';
+  if (mustChangePassword && location.pathname !== '/change-password') return <Navigate to="/change-password" replace />;
+  if (!mustChangePassword && location.pathname === '/change-password') return <Navigate to="/ess" replace />;
   return <Layout>{children}</Layout>;
 }
 
@@ -40,6 +46,8 @@ export default function App() {
         {/* Protected Routes (Require Login) */}
         <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
         <Route path="/ess" element={<ProtectedRoute><ESSPortal /></ProtectedRoute>} />
+        <Route path="/training" element={<ProtectedRoute><TrainingDashboard /></ProtectedRoute>} />
+        <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
         <Route path="/employees" element={<ProtectedRoute><EmployeeDashboard /></ProtectedRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><OnboardingDashboard /></ProtectedRoute>} />
         <Route path="/contracts" element={<ProtectedRoute><ContractsDashboard /></ProtectedRoute>} />

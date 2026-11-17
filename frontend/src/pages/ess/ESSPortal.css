@@ -47,3 +47,24 @@
 .ess-record-table { min-width:1250px; }
 .ess-record-table td small { display:block; max-width:220px; margin-top:4px; color:#7c8995; white-space:normal; }
 .ess-record-table td { max-width:220px; white-space:normal; }
+
+.ess-review-select { display:grid; gap:7px; max-width:680px; margin:12px 0 16px; color:#435669; font-size:12px; font-weight:600; }
+.ess-review-select select { min-height:40px; padding:8px 11px; border:1px solid #cfdae3; border-radius:7px; background:#fff; color:#293b4b; font:inherit; font-weight:400; }
+.ess-review-select small { color:#748596; font-size:11px; font-weight:400; }
+
+.ess-profile-tag { padding:5px 9px; border-radius:20px; background:#edf6fa; color:#367996; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+.ess-profile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 18px; margin:4px 0 15px; border-top:1px solid #e6edf2; }
+.ess-profile-field { display:grid; gap:5px; padding:13px 2px; border-bottom:1px solid #e6edf2; }
+.ess-profile-field span { color:#748596; font-size:11px; }
+.ess-profile-field strong { color:#31475a; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+@media(max-width:700px){.ess-profile-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:450px){.ess-profile-grid{grid-template-columns:1fr;}}
+
+.ess-stack { display:grid; gap:16px; }
+.ess-review-card textarea { width:100%; min-height:60px; box-sizing:border-box; padding:8px 10px; border:1px solid #d7e1e9; border-radius:6px; font:inherit; }
+.ess-team-leave { align-items:flex-start; }
+.ess-team-leave-actions { min-width:min(100%, 340px); display:grid!important; gap:8px!important; }
+.ess-team-leave-actions label { display:grid; gap:5px; color:#435669; font-size:11px; font-weight:600; }
+.ess-team-leave-actions input { min-height:36px; padding:7px 9px; border:1px solid #d7e1e9; border-radius:6px; font:inherit; }
+.ess-team-leave-actions > div { display:flex; flex-wrap:wrap; gap:8px; }
+.ess-team-leave-actions .btn-primary,.ess-team-leave-actions .ess-cancel { min-height:36px; }

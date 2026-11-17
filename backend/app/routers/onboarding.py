@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
-from app.database import SessionLocal
+from app.database import SessionLocal, get_password_hash
 from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument
 from app.models.recruitment import Candidate
@@ -79,13 +79,15 @@ def serialize_onboarding(candidate: Candidate, db: Session) -> dict:
     return {
         "candidate_id": str(candidate.id), "employee_id": str(employee.id),
         "employee_number": employee.employee_number, "first_name": candidate.first_name,
-        "last_name": candidate.last_name, "email": candidate.email,
+        "middle_name": employee.middle_name, "last_name": candidate.last_name, "email": candidate.email,
         "phone_number": candidate.phone_number, "job_title": employee.job_title,
         "department_name": candidate.requisition.department.name if candidate.requisition and candidate.requisition.department else None,
         "status": candidate.status, "documents": [serialize_document(doc) for doc in docs],
         "personal_details": {
             "personal_email": employee.personal_email, "work_email": employee.work_email,
-            "home_address": employee.home_address, "father_name": employee.father_name,
+            "middle_name": employee.middle_name, "gender": employee.gender,
+            "marital_status": employee.marital_status, "home_address": employee.home_address,
+            "father_name": employee.father_name,
             "mother_name": employee.mother_name, "national_id": employee.national_id,
             "tin_number": employee.tin_number, "nssf_number": employee.nssf_number,
             "bank_name": employee.bank_name, "account_number": employee.account_number,
@@ -120,7 +122,8 @@ async def submit_candidate_onboarding(
         raise HTTPException(status_code=422, detail="Personal details are invalid.") from exc
     employee = db.query(Employee).filter(Employee.id == candidate.employee_id).first()
     editable = {
-        "personal_email", "work_email", "home_address", "father_name", "mother_name",
+        "middle_name", "personal_email", "work_email", "phone_number", "home_address",
+        "gender", "marital_status", "father_name", "mother_name",
         "national_id", "tin_number", "nssf_number", "bank_name", "account_number",
         "next_of_kin_name", "next_of_kin_relationship", "next_of_kin_phone", "next_of_kin_address",
     }
@@ -260,8 +263,20 @@ def finalize_onboarding(candidate_id: uuid.UUID, db: Session = Depends(get_db), 
         raise HTTPException(status_code=409, detail="Complete all required personal, contact, statutory, and bank details first.")
     employee.hire_date = date.today()
     employee.status = "PROBATION"
+    login_email = (employee.work_email or employee.personal_email or "").strip().lower()
+    if not login_email:
+        raise HTTPException(status_code=409, detail="Add a personal or work email before finalizing the employee record.")
+    account = db.query(User).filter(User.employee_id == employee.id).first()
+    temporary_password = None
+    if account is None:
+        if db.query(User).filter(User.email == login_email).first():
+            raise HTTPException(status_code=409, detail="That email already belongs to another HRMS account. Resolve it in the Employee Directory first.")
+        temporary_password = secrets.token_urlsafe(12)
+        db.add(User(email=login_email, password_hash=get_password_hash(temporary_password), role="EMPLOYEE",
+                    employee_id=employee.id, is_active=True, must_change_password=True))
     candidate.onboarding_token_hash = None
     candidate.onboarding_expires_at = None
     db.commit()
     send_candidate_email(candidate, "Onboarding completed", f"Dear {candidate.first_name},\n\nYour onboarding review is complete. Welcome to Chap Chap Africa.\n\nRegards,\nHuman Resources")
-    return {"message": "Onboarding verified and employee record finalized.", "employee_id": str(employee.id), "employee_number": employee.employee_number, "status": employee.status}
+    return {"message": "Onboarding verified and employee record finalized.", "employee_id": str(employee.id), "employee_number": employee.employee_number, "status": employee.status,
+            "login_email": login_email, "temporary_password": temporary_password, "must_change_password": bool(temporary_password)}

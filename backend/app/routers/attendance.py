@@ -4,7 +4,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
@@ -30,6 +30,7 @@ def get_db():
 
 
 def get_current_user(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ) -> User:
@@ -71,6 +72,8 @@ def get_current_user(
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if user.must_change_password and request.url.path != "/api/auth/change-password":
+        raise HTTPException(status_code=428, detail="Change your temporary password before using the HRMS.")
     return user
 
 

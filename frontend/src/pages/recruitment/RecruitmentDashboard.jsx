@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { BriefcaseBusiness, Check, ClipboardList, RefreshCw, Users } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
+import FlexibleSelect from '../../components/FlexibleSelect'
 import './Recruitment.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
@@ -493,9 +494,7 @@ function RecruitmentDashboard() {
           <form onSubmit={createRequisition}>
             <label className="recruitment-field">Job title<input required maxLength="100" value={reqData.job_title} onChange={(event) => setReqData({ ...reqData, job_title: event.target.value })} /></label>
             <label className="recruitment-field">Minimum education
-              <select required value={reqData.min_education} onChange={(event) => setReqData({ ...reqData, min_education: event.target.value })}>
-                {['Certificate', 'Diploma', 'Bachelor', 'Master', 'PhD'].map((level) => <option key={level}>{level}</option>)}
-              </select>
+              <FlexibleSelect name="min_education" required value={reqData.min_education} onChange={(event) => setReqData({ ...reqData, min_education: event.target.value })} options={['Certificate', 'Diploma', 'Bachelor', 'Master', 'PhD']} placeholder="Select minimum education"/>
             </label>
             <label className="recruitment-field">Minimum experience (years)<input type="number" min="0" required value={reqData.min_experience} onChange={(event) => setReqData({ ...reqData, min_experience: Number(event.target.value) })} /></label>
             <label className="recruitment-field">Department code<input required value={reqData.department_code} onChange={(event) => setReqData({ ...reqData, department_code: event.target.value })} /></label>

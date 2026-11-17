@@ -1,0 +1,3 @@
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS decision_note TEXT;
+ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS details JSONB;

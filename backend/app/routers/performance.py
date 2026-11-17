@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal, Optional
 from uuid import UUID
@@ -13,6 +13,8 @@ from app.models.employee import Employee
 from app.models.notification import Notification
 from app.models.performance import PerformanceReview
 from app.models.user import User
+from app.models.performance_nomination import MonthlyNomination, QuarterlyResult
+from app.models.department import Department
 
 router = APIRouter()
 HR_ROLES = {"HR", "HR_ADMIN", "ADMIN", "MANAGEMENT", "DEVELOPER"}
@@ -104,6 +106,27 @@ def submit_self_review(request: SelfReviewSubmission, db: Session = Depends(get_
             title="Monthly self assessment submitted",
             message=f"{employee.first_name} {employee.last_name} submitted a self assessment for {period}.",
         ))
+    department_name = employee.department.name if employee.department else "Unassigned"
+    hr_users = db.query(User).filter(
+        User.role.in_(HR_ROLES), User.is_active.is_(True), User.id != user.id,
+    ).all()
+    for hr_user in hr_users:
+        db.add(Notification(
+            recipient_user_id=hr_user.id,
+            type="PERFORMANCE_SELF_SUBMITTED",
+            title="Employee submitted a performance self-rating",
+            message=f"{employee.first_name} {employee.last_name} submitted a self-rating for {period} ({department_name}).",
+            details={
+                "event": "Employee self-assessment submitted",
+                "employee_id": str(employee.id),
+                "employee_name": f"{employee.first_name} {employee.last_name}",
+                "department": department_name,
+                "review_period": period,
+                "self_rating": review.self_rating,
+                "self_comment": review.self_comment,
+            },
+            is_read=False,
+        ))
     try:
         db.commit()
     except SQLAlchemyError:
@@ -142,6 +165,31 @@ def submit_hod_review(review_id: UUID, request: HODReviewSubmission,
     review.hod_rating = request.hod_rating
     review.hod_comments = request.hod_comments.strip()
     review.rated_at = datetime.now(timezone.utc)
+    employee = review.employee
+    department_name = employee.department.name if employee.department else "Unassigned"
+    hr_users = db.query(User).filter(
+        User.role.in_(HR_ROLES), User.is_active.is_(True), User.id != user.id,
+    ).all()
+    for hr_user in hr_users:
+        db.add(Notification(
+            recipient_user_id=hr_user.id,
+            type="PERFORMANCE_HOD_RATED",
+            title="HOD completed an employee performance rating",
+            message=f"{employee.first_name} {employee.last_name} received a HOD rating for {review.review_period} ({department_name}).",
+            details={
+                "event": "HOD monthly review completed",
+                "employee_id": str(employee.id),
+                "employee_name": f"{employee.first_name} {employee.last_name}",
+                "department": department_name,
+                "review_period": review.review_period,
+                "self_rating": review.self_rating,
+                "hod_rating": review.hod_rating,
+                "behavior_rating": review.behavior_rating,
+                "hod_comments": review.hod_comments,
+                "rated_at": review.rated_at.isoformat(),
+            },
+            is_read=False,
+        ))
     try:
         db.commit()
     except SQLAlchemyError:
@@ -251,3 +299,271 @@ def list_reviews(db: Session = Depends(get_db), user: User = Depends(get_current
     elif role not in HR_ROLES:
         raise HTTPException(status_code=403, detail="Role is not allowed to view performance reviews.")
     return [review_payload(item) for item in query.order_by(PerformanceReview.review_period.desc()).all()]
+
+
+# ===========================================================================
+# MONTHLY NOMINATIONS + QUARTERLY WEIGHTED RESULTS
+# ===========================================================================
+
+class MonthlyNominationIn(BaseModel):
+    review_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    nominee_employee_id: UUID
+    weight: float = Field(gt=0, le=100)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+def _quarter_to_months(quarter: str) -> list[str]:
+    year, qtr = int(quarter[:4]), int(quarter[-1])
+    first = (qtr - 1) * 3 + 1
+    return [f"{year}-{first + i:02d}" for i in range(3)]
+
+
+def _hod_department(user: User, db: Session) -> Department:
+    employee = current_employee(user)
+    if not employee.department_id:
+        raise HTTPException(status_code=403, detail="HOD is not assigned to a department.")
+    dept = db.query(Department).filter(Department.id == employee.department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found.")
+    return dept
+
+
+def _nomination_payload(row: MonthlyNomination) -> dict:
+    return {
+        "id": str(row.id),
+        "department_id": str(row.department_id),
+        "review_period": row.review_period,
+        "nominee_employee_id": str(row.nominee_employee_id),
+        "nominee_name": f"{row.nominee.first_name} {row.nominee.last_name}" if row.nominee else None,
+        "weight": float(row.weight),
+        "monthly_score": float(row.monthly_score),
+        "notes": row.notes,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.post("/monthly-nomination")
+def create_monthly_nomination(
+    payload: MonthlyNominationIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = (user.role or "").upper()
+    if role != "HOD":
+        raise HTTPException(status_code=403, detail="Only HODs can nominate a monthly best performer.")
+    hod_emp = current_employee(user)
+    dept = _hod_department(user, db)
+
+    nominee = db.query(Employee).filter(
+        Employee.id == payload.nominee_employee_id,
+        Employee.department_id == dept.id,
+    ).first()
+    if not nominee:
+        raise HTTPException(status_code=404, detail="Nominee not found in your department.")
+
+    review = db.query(PerformanceReview).filter(
+        PerformanceReview.employee_id == nominee.id,
+        PerformanceReview.review_period == payload.review_period,
+        PerformanceReview.hod_rating.isnot(None),
+    ).first()
+    if not review:
+        raise HTTPException(
+            status_code=409,
+            detail="Nominee must have a completed HOD review for this month before being nominated.",
+        )
+
+    monthly_score = float(review.hod_rating)
+
+    existing = db.query(MonthlyNomination).filter(
+        MonthlyNomination.department_id == dept.id,
+        MonthlyNomination.review_period == payload.review_period,
+    ).first()
+
+    if existing:
+        existing.nominee_employee_id = nominee.id
+        existing.weight = payload.weight
+        existing.monthly_score = monthly_score
+        existing.notes = payload.notes
+        existing.nominated_by_employee_id = hod_emp.id
+        db.commit()
+        db.refresh(existing)
+        return _nomination_payload(existing)
+
+    row = MonthlyNomination(
+        department_id=dept.id,
+        review_period=payload.review_period,
+        nominee_employee_id=nominee.id,
+        weight=payload.weight,
+        monthly_score=monthly_score,
+        nominated_by_employee_id=hod_emp.id,
+        notes=payload.notes,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _nomination_payload(row)
+
+
+@router.get("/monthly-nominations")
+def list_monthly_nominations(
+    quarter: str = Query(pattern=r"^\d{4}-Q[1-4]$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = (user.role or "").upper()
+    months = _quarter_to_months(quarter)
+    query = db.query(MonthlyNomination).filter(MonthlyNomination.review_period.in_(months))
+    if role == "HOD":
+        dept = _hod_department(user, db)
+        query = query.filter(MonthlyNomination.department_id == dept.id)
+    elif role in HR_ROLES:
+        pass
+    else:
+        raise HTTPException(status_code=403, detail="HOD or HR access required.")
+    rows = query.order_by(MonthlyNomination.review_period.asc()).all()
+    return {"quarter": quarter, "nominations": [_nomination_payload(r) for r in rows]}
+
+
+@router.get("/quarterly-weighted")
+def quarterly_weighted(
+    quarter: str = Query(pattern=r"^\d{4}-Q[1-4]$"),
+    department_id: Optional[UUID] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = (user.role or "").upper()
+    months = _quarter_to_months(quarter)
+    query = db.query(MonthlyNomination).filter(MonthlyNomination.review_period.in_(months))
+    if role == "HOD":
+        dept = _hod_department(user, db)
+        query = query.filter(MonthlyNomination.department_id == dept.id)
+    elif role in HR_ROLES:
+        if department_id:
+            query = query.filter(MonthlyNomination.department_id == department_id)
+    else:
+        raise HTTPException(status_code=403, detail="HOD or HR access required.")
+
+    rows = query.all()
+    totals: dict = {}
+    for row in rows:
+        key = (str(row.department_id), str(row.nominee_employee_id))
+        entry = totals.setdefault(key, {
+            "department_id": str(row.department_id),
+            "department_name": row.nominee.department.name if row.nominee and row.nominee.department else None,
+            "employee_id": str(row.nominee_employee_id),
+            "employee_name": f"{row.nominee.first_name} {row.nominee.last_name}",
+            "weighted_total": 0.0,
+            "total_weight": 0.0,
+            "months": [],
+        })
+        weighted = float(row.monthly_score) * (float(row.weight) / 100.0)
+        entry["weighted_total"] += weighted
+        entry["total_weight"] += float(row.weight)
+        entry["months"].append({
+            "review_period": row.review_period,
+            "monthly_score": float(row.monthly_score),
+            "weight": float(row.weight),
+            "weighted_contribution": round(weighted, 2),
+        })
+
+    ranked = sorted(totals.values(), key=lambda r: r["weighted_total"], reverse=True)
+    for idx, row in enumerate(ranked, 1):
+        row["rank"] = idx
+        row["weighted_total"] = round(row["weighted_total"], 2)
+    return {"quarter": quarter, "ranking": ranked}
+
+
+@router.post("/quarterly-submit")
+def submit_quarterly_result(
+    quarter: str = Query(pattern=r"^\d{4}-Q[1-4]$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = (user.role or "").upper()
+    if role != "HOD":
+        raise HTTPException(status_code=403, detail="Only HODs can submit a quarterly best performer.")
+    dept = _hod_department(user, db)
+    hod_emp = current_employee(user)
+
+    months = _quarter_to_months(quarter)
+    nominations = db.query(MonthlyNomination).filter(
+        MonthlyNomination.department_id == dept.id,
+        MonthlyNomination.review_period.in_(months),
+    ).all()
+    if not nominations:
+        raise HTTPException(status_code=409, detail="Nominate at least one monthly performer first.")
+
+    total_weight = sum(float(n.weight) for n in nominations)
+    if abs(total_weight - 100.0) > 0.5:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Monthly weights must total 100%. Currently {total_weight:.2f}%.",
+        )
+
+    totals: dict = {}
+    for n in nominations:
+        key = str(n.nominee_employee_id)
+        entry = totals.setdefault(key, {"score": 0.0, "name": f"{n.nominee.first_name} {n.nominee.last_name}"})
+        entry["score"] += float(n.monthly_score) * (float(n.weight) / 100.0)
+
+    winner_id, winner = max(totals.items(), key=lambda kv: kv[1]["score"])
+
+    existing = db.query(QuarterlyResult).filter(
+        QuarterlyResult.department_id == dept.id,
+        QuarterlyResult.quarter == quarter,
+    ).first()
+    if existing:
+        existing.best_performer_employee_id = winner_id
+        existing.weighted_score = winner["score"]
+        existing.total_weight = total_weight
+        existing.submitted_by_employee_id = hod_emp.id
+    else:
+        db.add(QuarterlyResult(
+            department_id=dept.id,
+            quarter=quarter,
+            best_performer_employee_id=winner_id,
+            weighted_score=winner["score"],
+            total_weight=total_weight,
+            submitted_by_employee_id=hod_emp.id,
+        ))
+    db.commit()
+    return {
+        "quarter": quarter,
+        "department_id": str(dept.id),
+        "department_name": dept.name,
+        "best_performer_employee_id": winner_id,
+        "best_performer_name": winner["name"],
+        "weighted_score": round(winner["score"], 2),
+        "total_weight": round(total_weight, 2),
+    }
+
+
+@router.get("/quarterly-results")
+def list_quarterly_results(
+    quarter: str = Query(pattern=r"^\d{4}-Q[1-4]$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = (user.role or "").upper()
+    if role not in HR_ROLES | {"HOD"}:
+        raise HTTPException(status_code=403, detail="HOD or HR access required.")
+    query = db.query(QuarterlyResult).filter(QuarterlyResult.quarter == quarter)
+    if role == "HOD":
+        dept = _hod_department(user, db)
+        query = query.filter(QuarterlyResult.department_id == dept.id)
+    rows = query.order_by(QuarterlyResult.submitted_at.desc()).all()
+    return {
+        "quarter": quarter,
+        "results": [
+            {
+                "department_id": str(r.department_id),
+                "department_name": r.best_performer.department.name if r.best_performer and r.best_performer.department else None,
+                "best_performer_employee_id": str(r.best_performer_employee_id),
+                "best_performer_name": f"{r.best_performer.first_name} {r.best_performer.last_name}" if r.best_performer else None,
+                "weighted_score": float(r.weighted_score),
+                "total_weight": float(r.total_weight),
+                "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+            }
+            for r in rows
+        ],
+    }

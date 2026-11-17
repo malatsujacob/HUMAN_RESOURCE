@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, Date, ForeignKey, String
+from sqlalchemy import Column, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -15,5 +15,8 @@ class EmployeeExit(Base):
     last_working_day = Column(Date, nullable=False)
     reason = Column(String(500), nullable=False)
     clearance_status = Column(String(30), nullable=False, default="PENDING")
+    clearance_note = Column(Text)
+    clearance_reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    clearance_reviewed_at = Column(DateTime(timezone=True))
 
     employee = relationship("Employee")

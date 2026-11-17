@@ -20,8 +20,8 @@ export async function getPendingLeave() {
   return data
 }
 
-export async function reviewLeave(leaveId, decision) {
-  const { data } = await api.put(`/leave/${leaveId}/${decision}`)
+export async function reviewLeave(leaveId, decision, note) {
+  const { data } = await api.put(`/leave/${leaveId}/${decision}`, { note })
   return data
 }
 

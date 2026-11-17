@@ -6,6 +6,7 @@ import './OnboardingDashboard.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
 const DETAIL_FIELDS = [
+  ['middle_name','Middle name'],['gender','Gender'],['marital_status','Marital status'],
   ['personal_email','Personal email'],['work_email','Work email'],['phone_number','Phone number'],
   ['home_address','Home address'],['national_id','National ID (NIN)'],['tin_number','TIN number'],
   ['nssf_number','NSSF number'],['bank_name','Bank name'],['account_number','Bank account number'],

@@ -14,7 +14,7 @@ from app.models.payroll import Payslip
 from app.models.user import User
 
 router = APIRouter()
-PAYROLL_ROLES = {"HR", "HR_ADMIN", "FINANCE", "MANAGEMENT", "DEVELOPER"}
+PAYROLL_ROLES = {"HR", "HR_ADMIN", "ADMIN", "FINANCE", "MANAGEMENT", "DEVELOPER"}
 CENT = Decimal("0.01")
 
 

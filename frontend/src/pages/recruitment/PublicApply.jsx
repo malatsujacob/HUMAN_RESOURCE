@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { BriefcaseBusiness } from 'lucide-react'
+import FlexibleSelect from '../../components/FlexibleSelect'
 import './PublicApply.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
@@ -124,9 +125,7 @@ function PublicApply() {
 
             <div className="apply-field-grid">
               <label className="form-field">Highest education <b>*</b>
-                <select required value={formData.education_level} onChange={(event) => setFormData({ ...formData, education_level: event.target.value })}>
-                  {['Certificate', 'Diploma', 'Bachelor', 'Master', 'PhD'].map((level) => <option key={level}>{level}</option>)}
-                </select>
+                <FlexibleSelect name="education_level" required value={formData.education_level} onChange={(event) => setFormData({ ...formData, education_level: event.target.value })} options={['Certificate', 'Diploma', 'Bachelor', 'Master', 'PhD']} placeholder="Select highest education"/>
               </label>
               <label className="form-field">Years of experience <b>*</b><input type="number" min="0" required value={formData.experience_years} onChange={(event) => setFormData({ ...formData, experience_years: Number(event.target.value) })} /></label>
             </div>
