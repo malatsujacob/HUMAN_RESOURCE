@@ -15,6 +15,7 @@ from app.models.performance import PerformanceReview
 from app.models.user import User
 from app.models.performance_nomination import MonthlyNomination, QuarterlyResult
 from app.models.department import Department
+from app.constants.departments import canonical_department_name
 
 router = APIRouter()
 HR_ROLES = {"HR", "HR_ADMIN", "ADMIN", "MANAGEMENT", "DEVELOPER"}
@@ -59,7 +60,10 @@ def review_payload(review: PerformanceReview) -> dict:
     return {
         "id": str(review.id), "employee_id": str(review.employee_id),
         "employee_name": f"{employee.first_name} {employee.last_name}" if employee else "Employee",
-        "department_name": employee.department.name if employee and employee.department else None,
+        "department_name": (
+            canonical_department_name(employee.department.code) or employee.department.name
+            if employee and employee.department else None
+        ),
         "review_period": review.review_period, "self_rating": review.self_rating,
         "self_comment": review.self_comment, "punctuality": review.punctuality,
         "overtime_worked": review.overtime_worked, "task_completion": review.task_completion,
@@ -102,17 +106,22 @@ def submit_self_review(request: SelfReviewSubmission, db: Session = Depends(get_
     for hod_user in hod_users:
         db.add(Notification(
             recipient_employee_id=hod_user.employee_id,
+            sender_user_id=user.id,
             type="PERFORMANCE_SELF_SUBMITTED",
             title="Monthly self assessment submitted",
             message=f"{employee.first_name} {employee.last_name} submitted a self assessment for {period}.",
         ))
-    department_name = employee.department.name if employee.department else "Unassigned"
+    department_name = (
+        canonical_department_name(employee.department.code) or employee.department.name
+        if employee.department else "Unassigned"
+    )
     hr_users = db.query(User).filter(
         User.role.in_(HR_ROLES), User.is_active.is_(True), User.id != user.id,
     ).all()
     for hr_user in hr_users:
         db.add(Notification(
             recipient_user_id=hr_user.id,
+            sender_user_id=user.id,
             type="PERFORMANCE_SELF_SUBMITTED",
             title="Employee submitted a performance self-rating",
             message=f"{employee.first_name} {employee.last_name} submitted a self-rating for {period} ({department_name}).",
@@ -166,13 +175,17 @@ def submit_hod_review(review_id: UUID, request: HODReviewSubmission,
     review.hod_comments = request.hod_comments.strip()
     review.rated_at = datetime.now(timezone.utc)
     employee = review.employee
-    department_name = employee.department.name if employee.department else "Unassigned"
+    department_name = (
+        canonical_department_name(employee.department.code) or employee.department.name
+        if employee.department else "Unassigned"
+    )
     hr_users = db.query(User).filter(
         User.role.in_(HR_ROLES), User.is_active.is_(True), User.id != user.id,
     ).all()
     for hr_user in hr_users:
         db.add(Notification(
             recipient_user_id=hr_user.id,
+            sender_user_id=user.id,
             type="PERFORMANCE_HOD_RATED",
             title="HOD completed an employee performance rating",
             message=f"{employee.first_name} {employee.last_name} received a HOD rating for {review.review_period} ({department_name}).",
@@ -272,7 +285,10 @@ def quarterly_ranking(quarter: str = Query(pattern=r"^\d{4}-Q[1-4]$"),
         entry = totals.setdefault(review.employee_id, {
             "employee_id": str(review.employee_id),
             "employee_name": f"{review.employee.first_name} {review.employee.last_name}",
-            "department_name": review.employee.department.name if review.employee.department else None,
+            "department_name": (
+                canonical_department_name(review.employee.department.code) or review.employee.department.name
+                if review.employee.department else None
+            ),
             "total": 0, "months_completed": 0,
         })
         entry["total"] += review.hod_rating
@@ -449,7 +465,10 @@ def quarterly_weighted(
         key = (str(row.department_id), str(row.nominee_employee_id))
         entry = totals.setdefault(key, {
             "department_id": str(row.department_id),
-            "department_name": row.nominee.department.name if row.nominee and row.nominee.department else None,
+            "department_name": (
+                canonical_department_name(row.nominee.department.code) or row.nominee.department.name
+                if row.nominee and row.nominee.department else None
+            ),
             "employee_id": str(row.nominee_employee_id),
             "employee_name": f"{row.nominee.first_name} {row.nominee.last_name}",
             "weighted_total": 0.0,
@@ -530,7 +549,7 @@ def submit_quarterly_result(
     return {
         "quarter": quarter,
         "department_id": str(dept.id),
-        "department_name": dept.name,
+        "department_name": canonical_department_name(dept.code) or dept.name,
         "best_performer_employee_id": winner_id,
         "best_performer_name": winner["name"],
         "weighted_score": round(winner["score"], 2),
@@ -557,7 +576,10 @@ def list_quarterly_results(
         "results": [
             {
                 "department_id": str(r.department_id),
-                "department_name": r.best_performer.department.name if r.best_performer and r.best_performer.department else None,
+                "department_name": (
+                    canonical_department_name(r.best_performer.department.code) or r.best_performer.department.name
+                    if r.best_performer and r.best_performer.department else None
+                ),
                 "best_performer_employee_id": str(r.best_performer_employee_id),
                 "best_performer_name": f"{r.best_performer.first_name} {r.best_performer.last_name}" if r.best_performer else None,
                 "weighted_score": float(r.weighted_score),

@@ -8,11 +8,23 @@ import datetime
 Base.metadata.create_all(bind=engine)
 db = SessionLocal()
 
-# Create Departments
-departments = ["TECH", "FINANCE", "CUSTOMER_SUPPORT", "SALES", "CATERING", "SECURITY", "ADMINISTRATION"]
-for code in departments:
-    if not db.query(Department).filter(Department.code == code).first():
-        db.add(Department(id=uuid.uuid4(), code=code, name=code.title()))
+# Create the canonical departments used across the HRMS.
+departments = [
+    ("TECH", "Tech"),
+    ("FINANCE", "Finance"),
+    ("SALES", "Sales"),
+    ("CUSTOMER_SUPPORT", "Customer Support"),
+    ("SECURITY", "Security"),
+    ("CATERING", "Catering"),
+    ("MARKETING", "Marketing"),
+    ("ADMINISTRATION", "Administration/Management"),
+]
+for code, name in departments:
+    existing = db.query(Department).filter(Department.code == code).first()
+    if existing:
+        existing.name = name
+    else:
+        db.add(Department(id=uuid.uuid4(), code=code, name=name))
 
 db.commit()
 

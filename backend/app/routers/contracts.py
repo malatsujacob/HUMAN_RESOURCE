@@ -18,6 +18,7 @@ from app.models.employee_document import EmployeeDocument
 from app.models.notification import Notification
 from app.models.user import User
 from app.routers.attendance import get_current_user
+from app.constants.departments import canonical_department_name
 
 router = APIRouter()
 HR_ROLES = {"HR", "HR_ADMIN", "ADMIN", "MANAGEMENT", "DEVELOPER"}
@@ -167,7 +168,7 @@ table{{width:100%;border-collapse:collapse}}td{{padding:7px;border-bottom:1px so
 <table>
 <tr><td>Employee number</td><td>{safe(employee.employee_number)}</td></tr>
 <tr><td>Position</td><td>{safe(contract.job_title or employee.job_title)}</td></tr>
-<tr><td>Department</td><td>{safe(employee.department.name if employee.department else employee.legacy_department)}</td></tr>
+<tr><td>Department</td><td>{safe((canonical_department_name(employee.department.code) or employee.department.name) if employee.department else employee.legacy_department)}</td></tr>
 <tr><td>Work location</td><td>{safe(contract.work_location or employee.work_location)}</td></tr>
 <tr><td>Employment type</td><td>{safe(contract.employment_type or contract.contract_type)}</td></tr>
 <tr><td>Term</td><td>{safe(period)}</td></tr>
@@ -204,7 +205,10 @@ def contract_payload(contract: Contract) -> dict:
         "id": str(contract.id), "employee_id": str(contract.employee_id),
         "employee_name": employee_name(employee), "employee_number": employee.employee_number,
         "employee_email": employee.work_email or employee.personal_email,
-        "department_name": employee.department.name if employee.department else employee.legacy_department,
+        "department_name": (
+            canonical_department_name(employee.department.code) or employee.department.name
+            if employee.department else employee.legacy_department
+        ),
         "contract_type": contract.contract_type, "start_date": contract.start_date,
         "end_date": contract.end_date, "base_salary": str(contract.base_salary) if contract.base_salary is not None else None,
         "job_title": contract.job_title or employee.job_title, "work_location": contract.work_location,
@@ -244,7 +248,10 @@ def create_expiry_notifications(db: Session, contracts: list[Contract]) -> None:
         days = (contract.end_date - date.today()).days
         if (contract.expiry_reminder_days is not None and days <= contract.expiry_reminder_days
                 and contract.expiry_alert_sent_at is None and hr_users):
-            department = contract.employee.department.name if contract.employee.department else contract.employee.legacy_department
+            department = (
+                canonical_department_name(contract.employee.department.code) or contract.employee.department.name
+                if contract.employee.department else contract.employee.legacy_department
+            )
             message = (
                 f"{employee_name(contract.employee)}'s contract expired {abs(days)} day(s) ago."
                 if days < 0 else
@@ -405,12 +412,15 @@ def sign_contract(
     hr_users = db.query(User).filter(User.is_active.is_(True), User.role.in_(HR_ROLES)).all()
     for recipient in hr_users:
         db.add(Notification(
-            recipient_user_id=recipient.id, type="CONTRACT_SIGNED",
+            recipient_user_id=recipient.id, sender_user_id=user.id, type="CONTRACT_SIGNED",
             title="Employee signed an employment contract",
             message=f"{employee_name(contract.employee)} signed their {contract.contract_type.lower()} contract.",
             details={"contract_id": str(contract.id), "employee_id": str(contract.employee_id),
                      "employee_name": employee_name(contract.employee),
-                     "department": contract.employee.department.name if contract.employee.department else "Unassigned"},
+                     "department": (
+                         canonical_department_name(contract.employee.department.code) or contract.employee.department.name
+                         if contract.employee.department else "Unassigned"
+                     )},
             is_read=False,
         ))
     try:

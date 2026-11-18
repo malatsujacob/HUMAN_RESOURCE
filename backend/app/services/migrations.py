@@ -1,10 +1,102 @@
 ﻿from pathlib import Path
+import uuid
 
-from sqlalchemy import text
+from sqlalchemy import MetaData, Table, inspect, text, update
 
 from app.database import engine
+from app.constants.departments import (
+    DEPARTMENT_CATALOG,
+    canonical_department_code,
+)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+
+
+def upgrade_department_catalog() -> None:
+    with engine.begin() as connection:
+        rows = connection.execute(
+            text("SELECT id, code, name FROM departments")
+        ).mappings().all()
+        classified = {
+            row["id"]: canonical_department_code(row["code"])
+            or canonical_department_code(row["name"])
+            for row in rows
+        }
+        metadata = MetaData()
+        inspector = inspect(connection)
+
+        def reassign_department_references(source_id, target_id) -> None:
+            for table_name in inspector.get_table_names():
+                for foreign_key in inspector.get_foreign_keys(table_name):
+                    if foreign_key.get("referred_table") != "departments":
+                        continue
+                    for column_name, referred_column in zip(
+                        foreign_key.get("constrained_columns") or [],
+                        foreign_key.get("referred_columns") or [],
+                    ):
+                        if referred_column != "id":
+                            continue
+                        table = Table(table_name, metadata, autoload_with=connection)
+                        connection.execute(
+                            update(table)
+                            .where(table.c[column_name] == source_id)
+                            .values({column_name: target_id})
+                        )
+
+        for department in DEPARTMENT_CATALOG:
+            code = department["code"]
+            matching_rows = [
+                row for row in rows if classified[row["id"]] == code
+            ]
+            matching_rows.sort(key=lambda row: row["code"] != code)
+
+            if not matching_rows:
+                department_id = uuid.uuid4()
+                connection.execute(
+                    text(
+                        "INSERT INTO departments (id, code, name) "
+                        "VALUES (:id, :code, :name)"
+                    ),
+                    {"id": department_id, **department},
+                )
+                rows.append({"id": department_id, **department})
+                classified[department_id] = code
+                continue
+
+            canonical_row = matching_rows[0]
+            for duplicate in matching_rows[1:]:
+                reassign_department_references(duplicate["id"], canonical_row["id"])
+                connection.execute(
+                    text("DELETE FROM departments WHERE id = :id"),
+                    {"id": duplicate["id"]},
+                )
+
+            connection.execute(
+                text("UPDATE departments SET code = :code, name = :name WHERE id = :id"),
+                {"id": canonical_row["id"], **department},
+            )
+
+
+def upgrade_notification_center() -> None:
+    with engine.begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE notifications "
+            "ADD COLUMN IF NOT EXISTS sender_user_id UUID "
+            "REFERENCES users(id) ON DELETE SET NULL"
+        ))
+        connection.execute(text(
+            "ALTER TABLE notifications "
+            "ADD COLUMN IF NOT EXISTS in_reply_to_id UUID "
+            "REFERENCES notifications(id) ON DELETE CASCADE"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_notifications_sender_user_id "
+            "ON notifications(sender_user_id)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_notifications_in_reply_to_id "
+            "ON notifications(in_reply_to_id)"
+        ))
 
 
 def upgrade_recruitment_pipeline() -> None:

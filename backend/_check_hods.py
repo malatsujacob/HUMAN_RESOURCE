@@ -1,4 +1,4 @@
-﻿from app.database import engine
+﻿python -c "from app.services.migrations import upgrade_disbursement; upgrade_disbursement(); print('Migration applied.')"from app.database import engine
 from sqlalchemy import text
 
 SQL = """

@@ -23,6 +23,7 @@ In another terminal, install the frontend dependencies from `frontend/` and run 
 - `backend/app/models/` contains SQLAlchemy models.
 - `backend/migrations/` contains SQL migration files.
 - `frontend/src/` contains the React application.
+- Department selectors use one canonical catalog: Tech, Finance, Sales, Customer Support, Security, Catering, Marketing, and Administration/Management. The backend normalizes known legacy department aliases at startup; unknown legacy mappings remain visible for correction and are excluded from payroll totals.
 
 ## Payroll control center
 

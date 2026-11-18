@@ -1,0 +1,1159 @@
+﻿
+=== backend\app\routers\payroll.py ===
+from datetime import date, datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, joinedload
+
+from app.routers.attendance import get_current_user, get_db
+from app.models.attendance import Attendance
+from app.models.employee import Employee
+from app.models.payroll import PayrollAuditEvent, PayrollCycle, PayrollReconciliation, Payslip
+from app.models.user import User
+
+router = APIRouter()
+PAYROLL_ROLES = {"HR", "HR_ADMIN", "ADMIN", "FINANCE", "MANAGEMENT", "DEVELOPER"}
+PAY_CODE_CATEGORIES = {
+    "BASE_WAGES": "Wages",
+    "REGULAR": "Wages",
+    "BONUS": "Bonus",
+    "OVERTIME": "Overtime",
+    "RETRO": "Retroactive pay",
+}
+CENT = Decimal("0.01")
+
+
+class GeneratePayrollRequest(BaseModel):
+    pay_period: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+class PayslipResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    employee_id: UUID
+    pay_period: str
+    gross_salary: Decimal
+    paye_tax: Decimal
+    nssf_deduction: Decimal
+    net_salary: Decimal
+    employer_contribution: Decimal = Decimal("0")
+    employer_pension: Decimal = Decimal("0")
+    employer_social_contribution: Decimal = Decimal("0")
+    bonus_amount: Decimal = Decimal("0")
+    overtime_amount: Decimal = Decimal("0")
+    retro_amount: Decimal = Decimal("0")
+    retro_reason: Optional[str] = None
+    retro_source: Optional[str] = None
+    retro_verified: str = "PENDING"
+    pay_code: str = "BASE_WAGES"
+    reporting_category: Optional[str] = None
+    employee_name: Optional[str] = None
+    employee_number: Optional[str] = None
+    department_id: Optional[UUID] = None
+    department_name: Optional[str] = None
+    cost_center: Optional[str] = None
+    work_location: Optional[str] = None
+    employee_valid: bool = True
+    department_valid: bool = False
+
+
+class ReconciliationRequest(BaseModel):
+    register_total: Decimal = Field(ge=0)
+    source_total: Decimal = Field(ge=0)
+    discrepancies: list[dict] = Field(default_factory=list, max_length=1000)
+    source_filename: Optional[str] = Field(default=None, max_length=255)
+
+
+class CycleStageRequest(BaseModel):
+    stage: str = Field(pattern=r"^(DATA_ENTRY|APPROVAL|POSTING|POSTED)$")
+
+
+class CycleDeadlinesRequest(BaseModel):
+    approval_deadline: Optional[date] = None
+    posting_deadline: Optional[date] = None
+
+
+class PaymentElectionRequest(BaseModel):
+    bank_name: str = Field(min_length=1, max_length=100)
+    account_number: str = Field(min_length=6, max_length=50)
+
+
+class PayrollGenerationResponse(BaseModel):
+    pay_period: str
+    generated_count: int
+    skipped_count: int
+    payslips: list[PayslipResponse]
+
+
+def require_payroll_role(user: User) -> None:
+    if user.role.upper() not in PAYROLL_ROLES:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access company payroll")
+
+
+def round_money(amount: Decimal) -> Decimal:
+    return amount.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def validate_pay_period(pay_period: str) -> None:
+    if len(pay_period) != 7:
+        raise HTTPException(status_code=422, detail="pay_period must be formatted as YYYY-MM")
+    try:
+        date.fromisoformat(f"{pay_period}-01")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="pay_period must be formatted as YYYY-MM")
+
+
+def add_audit_event(
+    db: Session,
+    user: User,
+    pay_period: str,
+    action_type: str,
+    target: str,
+    before_value: Optional[str] = None,
+    after_value: Optional[str] = None,
+) -> None:
+    db.add(PayrollAuditEvent(
+        pay_period=pay_period,
+        actor_id=user.id,
+        actor_email=user.email,
+        action_type=action_type,
+        target=target,
+        before_value=before_value,
+        after_value=after_value,
+    ))
+
+
+def get_or_create_cycle(db: Session, pay_period: str) -> Optional[PayrollCycle]:
+    cycle = db.query(PayrollCycle).filter(PayrollCycle.pay_period == pay_period).with_for_update().first()
+    if cycle is None and db.query(Payslip.id).filter(Payslip.pay_period == pay_period).first():
+        cycle = PayrollCycle(pay_period=pay_period, stage="DATA_ENTRY")
+        db.add(cycle)
+        db.flush()
+    return cycle
+
+
+@router.post("/generate", response_model=PayrollGenerationResponse)
+def generate_payroll(
+    request: GeneratePayrollRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_payroll_role(user)
+
+    employees = (
+        db.query(Employee)
+        .options(joinedload(Employee.department))
+        .filter(Employee.status == "ACTIVE")
+        .order_by(Employee.id)
+        .with_for_update()
+        .all()
+    )
+    existing_employee_ids = {
+        employee_id
+        for (employee_id,) in db.query(Payslip.employee_id)
+        .filter(Payslip.pay_period == request.pay_period)
+        .all()
+    }
+
+    payslips = []
+    skipped_count = 0
+    for employee in employees:
+        if employee.id in existing_employee_ids:
+            skipped_count += 1
+            continue
+        if employee.department_id is None or employee.department is None:
+            skipped_count += 1
+            continue
+        if employee.base_salary is None or employee.base_salary < 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Employee {employee.id} has no valid base salary",
+            )
+
+        gross_salary = round_money(Decimal(employee.base_salary))
+        nssf_deduction = round_money(gross_salary * Decimal("0.05"))
+        paye_tax = round_money(gross_salary * Decimal("0.10"))
+        payslips.append(
+            Payslip(
+                employee_id=employee.id,
+                pay_period=request.pay_period,
+                gross_salary=gross_salary,
+                nssf_deduction=nssf_deduction,
+                paye_tax=paye_tax,
+                net_salary=gross_salary - nssf_deduction - paye_tax,
+            )
+        )
+
+    db.add_all(payslips)
+    cycle = db.query(PayrollCycle).filter(PayrollCycle.pay_period == request.pay_period).first()
+    if cycle is None:
+        cycle = PayrollCycle(pay_period=request.pay_period, stage="DATA_ENTRY")
+        db.add(cycle)
+    add_audit_event(
+        db, user, request.pay_period, "PAYROLL_GENERATED", request.pay_period,
+        after_value=f"created={len(payslips)}; skipped={skipped_count}",
+    )
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+
+    for payslip in payslips:
+        db.refresh(payslip)
+
+    return PayrollGenerationResponse(
+        pay_period=request.pay_period,
+        generated_count=len(payslips),
+        skipped_count=skipped_count,
+        payslips=payslips,
+    )
+
+
+@router.get("/my-payslips", response_model=list[PayslipResponse])
+def get_my_payslips(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if user.role.upper() not in PAYROLL_ROLES | {"HOD", "EMPLOYEE"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access payslips")
+    if user.employee_id is None:
+        raise HTTPException(status_code=403, detail="User is not linked to an employee record")
+
+    return (
+        db.query(Payslip)
+        .filter(Payslip.employee_id == user.employee_id)
+        .order_by(Payslip.pay_period.desc())
+        .all()
+    )
+
+
+@router.get("/all", response_model=list[PayslipResponse])
+def get_all_payslips(
+    pay_period: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if pay_period is not None:
+        validate_pay_period(pay_period)
+
+    role = user.role.upper()
+    query = db.query(Payslip).options(
+        joinedload(Payslip.employee).joinedload(Employee.department)
+    ).outerjoin(Employee, Payslip.employee_id == Employee.id)
+    if role in PAYROLL_ROLES:
+        pass
+    elif role == "HOD":
+        if user.employee is None or user.employee.department_id is None:
+            raise HTTPException(status_code=403, detail="HOD is not assigned to a department")
+        query = query.filter(Employee.department_id == user.employee.department_id)
+    else:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access company payroll")
+    if pay_period is not None:
+        query = query.filter(Payslip.pay_period == pay_period)
+    payslips = query.order_by(Payslip.pay_period.desc(), Payslip.employee_id).all()
+    return [
+        {
+            "id": item.id,
+            "employee_id": item.employee_id,
+            "pay_period": item.pay_period,
+            "gross_salary": item.gross_salary,
+            "paye_tax": item.paye_tax,
+            "nssf_deduction": item.nssf_deduction,
+            "net_salary": item.net_salary,
+            "employer_contribution": item.employer_contribution,
+            "employer_pension": item.employer_pension,
+            "employer_social_contribution": item.employer_social_contribution,
+            "bonus_amount": item.bonus_amount,
+            "overtime_amount": item.overtime_amount,
+            "retro_amount": item.retro_amount,
+            "retro_reason": item.retro_reason,
+            "retro_source": item.retro_source,
+            "retro_verified": item.retro_verified,
+            "pay_code": item.pay_code,
+            "reporting_category": PAY_CODE_CATEGORIES.get((item.pay_code or "").upper()),
+            "employee_name": " ".join(
+                part for part in [
+                    item.employee.first_name if item.employee else "",
+                    item.employee.middle_name if item.employee else "",
+                    item.employee.last_name if item.employee else "",
+                ] if part
+            ) or None,
+            "employee_number": item.employee.employee_number if item.employee else None,
+            "department_id": item.employee.department_id if item.employee else None,
+            "department_name": item.employee.department.name if item.employee and item.employee.department else None,
+            "cost_center": item.employee.cost_center if item.employee else None,
+            "work_location": item.employee.work_location if item.employee else None,
+            "employee_valid": item.employee is not None,
+            "department_valid": bool(item.employee and item.employee.department_id and item.employee.department),
+        }
+        for item in payslips
+    ]
+
+
+@router.put("/my-payment-election")
+def update_my_payment_election(
+    request: PaymentElectionRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if user.role.upper() not in PAYROLL_ROLES | {"HOD", "EMPLOYEE"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to update payment elections")
+    if user.employee is None:
+        raise HTTPException(status_code=403, detail="User is not linked to an employee record")
+    employee = db.query(Employee).filter(Employee.id == user.employee.id).with_for_update().first()
+    bank_name = request.bank_name.strip()
+    account_number = request.account_number.strip()
+    if not bank_name or len(account_number) < 6:
+        raise HTTPException(status_code=422, detail="Enter a bank name and a valid account number")
+    before_value = f"{employee.bank_name or ''}:****{(employee.account_number or '')[-4:]}"
+    employee.bank_name = bank_name
+    employee.account_number = account_number
+    employee.payment_account_updated_at = datetime.now(timezone.utc)
+    after_value = f"{employee.bank_name}:****{employee.account_number[-4:]}"
+    today = date.today()
+    pay_period = today.strftime("%Y-%m")
+    effective_month = today.month + 1
+    effective_year = today.year
+    if effective_month == 13:
+        effective_month = 1
+        effective_year += 1
+    add_audit_event(db, user, pay_period, "PAYMENT_ELECTION_UPDATED", str(employee.id), before_value, after_value)
+    db.commit()
+    return {
+        "bank_name": employee.bank_name,
+        "account_last_four": employee.account_number[-4:],
+        "updated_at": employee.payment_account_updated_at,
+        "effective_period": f"{effective_year}-{effective_month:02d}",
+    }
+
+
+@router.get("/cycles")
+def list_payroll_cycles(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = user.role.upper()
+    if role not in PAYROLL_ROLES | {"HOD"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access payroll cycles")
+    cycles = {
+        item.pay_period: item
+        for item in db.query(PayrollCycle).order_by(PayrollCycle.pay_period.desc()).all()
+    }
+    periods = {period for (period,) in db.query(Payslip.pay_period).distinct().all()} | set(cycles)
+    if role == "HOD":
+        if user.employee is None or user.employee.department_id is None:
+            raise HTTPException(status_code=403, detail="HOD is not assigned to a department")
+        periods = {
+            period for (period,) in db.query(Payslip.pay_period).join(Employee).filter(
+                Employee.department_id == user.employee.department_id
+            ).distinct().all()
+        }
+    return [
+        {
+            "pay_period": period,
+            "stage": cycles[period].stage if period in cycles else "DATA_ENTRY",
+            "approval_deadline": cycles[period].approval_deadline if period in cycles else None,
+            "posting_deadline": cycles[period].posting_deadline if period in cycles else None,
+            "updated_at": cycles[period].updated_at if period in cycles else None,
+        }
+        for period in sorted(periods, reverse=True)
+    ]
+
+
+@router.put("/cycles/{pay_period}/stage")
+def update_cycle_stage(
+    pay_period: str,
+    request: CycleStageRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_payroll_role(user)
+    validate_pay_period(pay_period)
+    cycle = get_or_create_cycle(db, pay_period)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="Payroll cycle not found")
+    transitions = {"DATA_ENTRY": "APPROVAL", "APPROVAL": "POSTING", "POSTING": "POSTED"}
+    if transitions.get(cycle.stage) != request.stage:
+        raise HTTPException(status_code=409, detail=f"Cannot move a {cycle.stage} cycle to {request.stage}")
+    approver_roles = {"HR", "HR_ADMIN", "ADMIN", "MANAGEMENT", "DEVELOPER"}
+    finance_roles = {"FINANCE", "ADMIN", "MANAGEMENT", "DEVELOPER"}
+    if request.stage == "APPROVAL" and user.role.upper() not in approver_roles:
+        raise HTTPException(status_code=403, detail="A payroll approver is required to send the cycle for approval")
+    if request.stage in {"POSTING", "POSTED"} and user.role.upper() not in finance_roles:
+        raise HTTPException(status_code=403, detail="Finance approval is required for posting")
+    if request.stage == "POSTING":
+        reconciliations = db.query(PayrollReconciliation).filter(
+            PayrollReconciliation.pay_period == pay_period
+        ).all()
+        by_type = {item.reconciliation_type: item.status for item in reconciliations}
+        if by_type.get("bank") != "MATCH" or by_type.get("tax") != "MATCH":
+            raise HTTPException(status_code=409, detail="Bank and tax reconciliations must both match before approval")
+    if request.stage == "POSTED":
+        if cycle.stage != "POSTING":
+            raise HTTPException(status_code=409, detail="Payroll must be in posting before it can be posted")
+    old_stage = cycle.stage
+    if request.stage == "APPROVAL":
+        payslip_count = db.query(Payslip.id).filter(Payslip.pay_period == pay_period).count()
+        if payslip_count == 0:
+            raise HTTPException(status_code=409, detail="Generate payroll records before submitting the cycle for approval")
+        unmapped_employee_count = db.query(Employee.id).filter(
+            Employee.status == "ACTIVE",
+            Employee.department_id.is_(None),
+        ).count()
+        if unmapped_employee_count:
+            raise HTTPException(status_code=409, detail="Resolve active employees without department mappings before approval")
+    cycle.stage = request.stage
+    cycle.updated_by = user.id
+    cycle.updated_at = datetime.now(timezone.utc)
+    add_audit_event(db, user, pay_period, "CYCLE_STAGE_CHANGED", pay_period, old_stage, request.stage)
+    db.commit()
+    return {"pay_period": pay_period, "stage": cycle.stage}
+
+
+@router.put("/cycles/{pay_period}/deadlines")
+def update_cycle_deadlines(
+    pay_period: str,
+    request: CycleDeadlinesRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_payroll_role(user)
+    validate_pay_period(pay_period)
+    cycle = get_or_create_cycle(db, pay_period)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="Payroll cycle not found")
+    before_value = f"approval={cycle.approval_deadline}; posting={cycle.posting_deadline}"
+    cycle.approval_deadline = request.approval_deadline
+    cycle.posting_deadline = request.posting_deadline
+    cycle.updated_by = user.id
+    cycle.updated_at = datetime.now(timezone.utc)
+    after_value = f"approval={cycle.approval_deadline}; posting={cycle.posting_deadline}"
+    add_audit_event(db, user, pay_period, "DEADLINES_UPDATED", pay_period, before_value, after_value)
+    db.commit()
+    return {
+        "pay_period": pay_period,
+        "approval_deadline": cycle.approval_deadline,
+        "posting_deadline": cycle.posting_deadline,
+    }
+
+
+@router.put("/cycles/{pay_period}/reconciliations/{reconciliation_type}")
+def save_reconciliation(
+    pay_period: str,
+    reconciliation_type: str,
+    request: ReconciliationRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_payroll_role(user)
+    validate_pay_period(pay_period)
+    if reconciliation_type not in {"bank", "tax"}:
+        raise HTTPException(status_code=422, detail="reconciliation_type must be bank or tax")
+    cycle = get_or_create_cycle(db, pay_period)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="Payroll cycle not found")
+    mismatches = request.discrepancies
+    status = "MATCH" if request.register_total == request.source_total and not mismatches else "MISMATCH"
+    details = {
+        "register_total": str(request.register_total),
+        "source_total": str(request.source_total),
+        "source_filename": request.source_filename,
+        "discrepancies": mismatches,
+    }
+    record = db.query(PayrollReconciliation).filter(
+        PayrollReconciliation.pay_period == pay_period,
+        PayrollReconciliation.reconciliation_type == reconciliation_type,
+    ).first()
+    before_value = f"{record.status}: {record.details}" if record else None
+    if record is None:
+        record = PayrollReconciliation(
+            pay_period=pay_period,
+            reconciliation_type=reconciliation_type,
+            status=status,
+            details=details,
+            updated_by=user.id,
+        )
+        db.add(record)
+    else:
+        record.status = status
+        record.details = details
+        record.updated_by = user.id
+        record.updated_at = datetime.now(timezone.utc)
+    add_audit_event(db, user, pay_period, "RECONCILIATION_SAVED", reconciliation_type, before_value, f"{status}: {details}")
+    db.commit()
+    return {"pay_period": pay_period, "reconciliation_type": reconciliation_type, "status": status, "details": details}
+
+
+@router.get("/cycles/{pay_period}/reconciliations")
+def get_reconciliations(
+    pay_period: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = user.role.upper()
+    if role not in PAYROLL_ROLES | {"HOD"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access reconciliations")
+    validate_pay_period(pay_period)
+    query = db.query(PayrollReconciliation).filter(PayrollReconciliation.pay_period == pay_period)
+    if role == "HOD":
+        if user.employee is None or user.employee.department_id is None:
+            raise HTTPException(status_code=403, detail="HOD is not assigned to a department")
+        query = query.filter(False)
+    return [
+        {
+            "reconciliation_type": item.reconciliation_type,
+            "status": item.status,
+            "details": item.details,
+            "updated_at": item.updated_at,
+        }
+        for item in query.order_by(PayrollReconciliation.reconciliation_type).all()
+    ]
+
+
+@router.get("/cycles/{pay_period}/audit")
+def get_payroll_audit(
+    pay_period: str,
+    search: Optional[str] = Query(default=None, max_length=200),
+    action_type: Optional[str] = Query(default=None, max_length=50),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = user.role.upper()
+    if role not in PAYROLL_ROLES | {"HOD"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access payroll audit events")
+    validate_pay_period(pay_period)
+    query = db.query(PayrollAuditEvent).filter(PayrollAuditEvent.pay_period == pay_period)
+    if role == "HOD":
+        if user.employee is None or user.employee.department_id is None:
+            raise HTTPException(status_code=403, detail="HOD is not assigned to a department")
+        query = query.filter(False)
+    if action_type:
+        query = query.filter(PayrollAuditEvent.action_type == action_type)
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            (PayrollAuditEvent.actor_email.ilike(term))
+            | (PayrollAuditEvent.action_type.ilike(term))
+            | (PayrollAuditEvent.target.ilike(term))
+            | (PayrollAuditEvent.before_value.ilike(term))
+            | (PayrollAuditEvent.after_value.ilike(term))
+        )
+    return [
+        {
+            "id": str(item.id),
+            "user": item.actor_email,
+            "timestamp": item.created_at,
+            "action_type": item.action_type,
+            "target": item.target,
+            "before_value": item.before_value,
+            "after_value": item.after_value,
+        }
+        for item in query.order_by(PayrollAuditEvent.created_at.desc()).limit(500).all()
+    ]
+
+
+@router.get("/compliance")
+def get_payroll_compliance(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = user.role.upper()
+    if role not in PAYROLL_ROLES | {"HOD"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access payroll compliance data")
+    query = db.query(Employee).options(
+        joinedload(Employee.department), joinedload(Employee.documents)
+    ).filter(Employee.status == "ACTIVE")
+    if role == "HOD":
+        if user.employee is None or user.employee.department_id is None:
+            raise HTTPException(status_code=403, detail="HOD is not assigned to a department")
+        query = query.filter(Employee.department_id == user.employee.department_id)
+    return [
+        {
+            "employee_id": str(employee.id),
+            "employee_name": " ".join(
+                part for part in [employee.first_name, employee.middle_name, employee.last_name] if part
+            ),
+            "employee_number": employee.employee_number,
+            "department_name": employee.department.name if employee.department else None,
+            "department_valid": bool(employee.department_id and employee.department),
+            "tax_id_present": bool(employee.tin_number),
+            "tax_form_present": any(
+                "tin" in (document.document_type or "").lower()
+                and document.status.upper() not in {"MISSING", "REJECTED"}
+                for document in employee.documents
+            ) or employee.tax_form_updated_at is not None,
+            "tax_form_updated_at": employee.tax_form_updated_at,
+            "jurisdiction_address": employee.jurisdiction_address or employee.home_address,
+            "jurisdiction_updated_at": employee.jurisdiction_updated_at,
+        }
+        for employee in query.order_by(Employee.last_name, Employee.first_name).all()
+    ]
+
+
+@router.get("/overtime")
+def get_payroll_overtime(
+    pay_period: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    role = user.role.upper()
+    if role not in PAYROLL_ROLES | {"HOD"}:
+        raise HTTPException(status_code=403, detail="Role is not allowed to access payroll overtime data")
+    validate_pay_period(pay_period)
+    period_start = date.fromisoformat(f"{pay_period}-01")
+    period_end = date(period_start.year + (period_start.month == 12), period_start.month % 12 + 1, 1)
+    query = db.query(Attendance).join(Employee).options(joinedload(Attendance.employee)).filter(
+        Attendance.date >= period_start,
+        Attendance.date < period_end,
+        Attendance.overtime_hours > 0,
+    )
+    if role == "HOD":
+        if user.employee is None or user.employee.department_id is None:
+            raise HTTPException(status_code=403, detail="HOD is not assigned to a department")
+        query = query.filter(Employee.department_id == user.employee.department_id)
+    return [
+        {
+            "attendance_id": str(record.id),
+            "employee_id": str(record.employee_id),
+            "employee_name": " ".join(
+                part for part in [
+                    record.employee.first_name if record.employee else "",
+                    record.employee.middle_name if record.employee else "",
+                    record.employee.last_name if record.employee else "",
+                ] if part
+            ),
+            "employee_number": record.employee.employee_number if record.employee else None,
+            "date": record.date,
+            "hours": record.overtime_hours,
+        }
+        for record in query.order_by(Attendance.date, Attendance.employee_id).all()
+    ]
+
+=== backend\app\models\disbursement.py ===
+import uuid
+from sqlalchemy import Column, String, Numeric, Integer, Date, ForeignKey, DateTime, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.database import Base
+
+
+class PayrollDisbursement(Base):
+    __tablename__ = "payroll_disbursements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    payroll_cycle_id = Column(UUID(as_uuid=True), ForeignKey("payroll_cycles.id"), nullable=False)
+    status = Column(String(20), nullable=False, default="DRAFT")
+    payment_date = Column(Date)
+    currency = Column(String(10), default="UGX")
+    batch_reference = Column(String(100))
+    total_amount = Column(Numeric(15, 2), default=0)
+    employee_count = Column(Integer, default=0)
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    generated_by_employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id"))
+    approved_by_employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id"))
+    approved_at = Column(DateTime(timezone=True))
+    bank_file_path = Column(String(500))
+    confirmed_at = Column(DateTime(timezone=True))
+    failure_reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    generated_by = relationship("Employee", foreign_keys=[generated_by_employee_id])
+    approved_by = relationship("Employee", foreign_keys=[approved_by_employee_id])
+    items = relationship("PayrollDisbursementItem", back_populates="disbursement", cascade="all, delete-orphan")
+
+
+class PayrollDisbursementItem(Base):
+    __tablename__ = "payroll_disbursement_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    disbursement_id = Column(UUID(as_uuid=True), ForeignKey("payroll_disbursements.id", ondelete="CASCADE"), nullable=False)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id"), nullable=False)
+    employee_number = Column(String(50))
+    employee_name = Column(String(200))
+    account_number = Column(String(50))
+    account_name = Column(String(100))
+    bank_name = Column(String(100))
+    bank_code = Column(String(20))
+    branch_code = Column(String(20))
+    payment_method = Column(String(20), default="BANK")
+    mobile_number = Column(String(20))
+    net_pay = Column(Numeric(15, 2), nullable=False)
+    payment_reference = Column(String(100))
+    status = Column(String(20), default="PENDING")
+    failure_reason = Column(Text)
+    paid_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    disbursement = relationship("PayrollDisbursement", back_populates="items")
+    employee = relationship("Employee")
+
+=== backend\app\models\payroll.py ===
+import uuid
+from sqlalchemy import Column, String, Numeric, ForeignKey, Date, DateTime, JSON, Text, UniqueConstraint, event, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from app.database import Base
+
+
+class Payslip(Base):
+    __tablename__ = "payslips"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id"), nullable=False)
+    pay_period = Column(String(7), nullable=False)
+    gross_salary = Column(Numeric(15, 2), nullable=False)
+    paye_tax = Column(Numeric(15, 2), nullable=False)
+    nssf_deduction = Column(Numeric(15, 2), nullable=False)
+    net_salary = Column(Numeric(15, 2), nullable=False)
+    employer_contribution = Column(Numeric(15, 2), nullable=False, default=0)
+    employer_pension = Column(Numeric(15, 2), nullable=False, default=0)
+    employer_social_contribution = Column(Numeric(15, 2), nullable=False, default=0)
+    bonus_amount = Column(Numeric(15, 2), nullable=False, default=0)
+    overtime_amount = Column(Numeric(15, 2), nullable=False, default=0)
+    retro_amount = Column(Numeric(15, 2), nullable=False, default=0)
+    retro_reason = Column(String(500))
+    retro_source = Column(String(500))
+    retro_verified = Column(String(20), nullable=False, default="PENDING")
+    pay_code = Column(String(40), nullable=False, default="BASE_WAGES")
+    employee = relationship("Employee")
+
+
+class PayrollCycle(Base):
+    __tablename__ = "payroll_cycles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pay_period = Column(String(7), unique=True, nullable=False, index=True)
+    stage = Column(String(20), nullable=False, default="DATA_ENTRY")
+    approval_deadline = Column(Date)
+    posting_deadline = Column(Date)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class PayrollReconciliation(Base):
+    __tablename__ = "payroll_reconciliations"
+    __table_args__ = (
+        UniqueConstraint("pay_period", "reconciliation_type", name="uq_payroll_reconciliation_period_type"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pay_period = Column(String(7), nullable=False, index=True)
+    reconciliation_type = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False)
+    details = Column(JSON, nullable=False, default=dict)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class PayrollAuditEvent(Base):
+    __tablename__ = "payroll_audit_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pay_period = Column(String(7), nullable=False, index=True)
+    actor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    actor_email = Column(String(255), nullable=False)
+    action_type = Column(String(50), nullable=False)
+    target = Column(String(100), nullable=False)
+    before_value = Column(Text)
+    after_value = Column(Text)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+
+
+@event.listens_for(PayrollAuditEvent, "before_update")
+def prevent_payroll_audit_update(mapper, connection, target):
+    raise ValueError("Payroll audit events are immutable")
+
+
+@event.listens_for(PayrollAuditEvent, "before_delete")
+def prevent_payroll_audit_delete(mapper, connection, target):
+    raise ValueError("Payroll audit events are immutable")
+
+=== backend\app\services\migrations.py ===
+from pathlib import Path
+
+from sqlalchemy import text
+
+from app.database import engine
+
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+
+
+def upgrade_recruitment_pipeline() -> None:
+    migration_path = MIGRATIONS_DIR / "20261104_recruitment_pipeline.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_recruitment_workflow() -> None:
+    migration_path = MIGRATIONS_DIR / "20261106_recruitment_workflow.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_onboarding_contracts() -> None:
+    migration_path = MIGRATIONS_DIR / "20261104_onboarding_contracts.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_leave_approval() -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "ALTER TABLE leave_requests "
+                "ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id)"
+            )
+        )
+
+
+def upgrade_recruitment_onboarding() -> None:
+    migration_path = MIGRATIONS_DIR / "20261109_recruitment_onboarding.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_monthly_performance() -> None:
+    migration_path = MIGRATIONS_DIR / "20261109_monthly_performance.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_employee_profile_auth() -> None:
+    migration_path = MIGRATIONS_DIR / "20261109_employee_profile_auth.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_leave_audit() -> None:
+    migration_path = MIGRATIONS_DIR / "20261109_leave_audit.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_legacy_employee_profile() -> None:
+    migration_path = MIGRATIONS_DIR / "20261110_legacy_employee_profile.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_employee_profile_photo() -> None:
+    migration_path = MIGRATIONS_DIR / "20261110_employee_profile_photo.sql"
+    with engine.begin() as connection:
+        connection.execute(text(migration_path.read_text(encoding="utf-8")))
+
+
+def upgrade_contract_workflow() -> None:
+    migration_path = MIGRATIONS_DIR / "20261110_contract_workflow.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_hr_action_queues() -> None:
+    migration_path = MIGRATIONS_DIR / "20261110_hr_action_queues.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_payroll_controls() -> None:
+    migration_path = MIGRATIONS_DIR / "20261117_payroll_controls.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+        connection.execute(text(
+            "CREATE OR REPLACE FUNCTION prevent_payroll_audit_mutation() "
+            "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+            "RAISE EXCEPTION 'Payroll audit events are immutable'; END; $$"
+        ))
+        connection.execute(text("DROP TRIGGER IF EXISTS payroll_audit_immutable ON payroll_audit_events"))
+        connection.execute(text(
+            "CREATE TRIGGER payroll_audit_immutable BEFORE UPDATE OR DELETE ON payroll_audit_events "
+            "FOR EACH ROW EXECUTE FUNCTION prevent_payroll_audit_mutation()"
+        ))
+
+
+def upgrade_performance_nominations() -> None:
+    migration_path = MIGRATIONS_DIR / "20261118_performance_nominations.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+def upgrade_disbursement() -> None:
+    migration_path = MIGRATIONS_DIR / "20261119_disbursement.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+=== backend\app\main.py ===
+from fastapi import FastAPI
+from app.database import engine, Base
+from app.models import department, user, employee, employee_document, audit_log, leave, contract, attendance, recruitment, performance, notification, disciplinary, payroll, exit, training
+from app.routers import (
+    auth,
+    contracts,
+    employees,
+    leave as leave_api,
+    modules,
+    attendance,
+    payroll as payroll_api,
+    performance as performance_api,
+    disciplinary as disciplinary_api,
+    exit as exit_api,
+    onboarding,
+    recruitment,
+    notifications,
+    training as training_api,
+)
+from app.services.migrations import (
+    upgrade_leave_approval,
+    upgrade_onboarding_contracts,
+    upgrade_recruitment_pipeline,
+    upgrade_recruitment_workflow,
+    upgrade_recruitment_onboarding,
+    upgrade_monthly_performance,
+    upgrade_employee_profile_auth,
+    upgrade_leave_audit,
+    upgrade_legacy_employee_profile,
+    upgrade_employee_profile_photo,
+    upgrade_contract_workflow,
+    upgrade_hr_action_queues,
+    upgrade_payroll_controls,
+
+    upgrade_performance_nominations,)
+from fastapi.middleware.cors import CORSMiddleware
+
+Base.metadata.create_all(bind=engine)
+upgrade_recruitment_pipeline()
+upgrade_recruitment_workflow()
+upgrade_recruitment_onboarding()
+upgrade_monthly_performance()
+upgrade_performance_nominations()
+upgrade_employee_profile_auth()
+upgrade_onboarding_contracts()
+upgrade_leave_approval()
+upgrade_leave_audit()
+upgrade_legacy_employee_profile()
+upgrade_employee_profile_photo()
+upgrade_contract_workflow()
+upgrade_hr_action_queues()
+upgrade_payroll_controls()
+
+app = FastAPI(title="Chap Chap HRMS - Secure Backend")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router, prefix="/api/auth", tags=["1. Authentication"])
+app.include_router(employees.router, prefix="/api/employees", tags=["2. Employee Directory"])
+app.include_router(leave_api.router, prefix="/api/leave", tags=["3. Leave Management"])
+app.include_router(attendance.router, prefix="/api/attendance", tags=["4. Attendance"])
+app.include_router(recruitment.router, prefix="/api/recruitment", tags=["5. Recruitment"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["12. Notifications"])
+app.include_router(onboarding.router, prefix="/api/onboarding", tags=["6. Onboarding"])
+app.include_router(contracts.router, prefix="/api/contracts", tags=["7. Contracts"])
+app.include_router(payroll_api.router, prefix="/api/payroll", tags=["8. Payroll"])
+app.include_router(performance_api.router, prefix="/api/performance", tags=["9. Performance"])
+app.include_router(disciplinary_api.router, prefix="/api/disciplinary", tags=["10. Disciplinary"])
+app.include_router(exit_api.router, prefix="/api/exit", tags=["11. Exit & Clearance"])
+app.include_router(modules.router, prefix="/api", tags=["4. HR Modules"])
+app.include_router(training_api.router, prefix="/api/training", tags=["13. Training"])
+
+@app.get("/")
+def home():
+    return {"status": "Success", "security": "JWT & Bcrypt Hashing Active"}
+
+=== PROJECT_PROGRESS.md ===
+# Chap Chap Africa HRMS â€” Progress Tracker
+
+**Last reviewed:** 9 November 2026  
+**Baseline:** HRMS Process and Data-Flow Guide supplied for this project  
+**Current checkpoint:** Recruitment and candidate onboarding handoff code has been connected and frontend/backend build checks pass. No live candidate record or outbound email was used for verification.
+
+## Status key
+
+- **In place** â€” code for the described capability exists.
+- **Partial** â€” some of the process exists, with material workflow or access gaps.
+- **Not started** â€” no corresponding implementation was found.
+- **Not verified** â€” code exists, but a full workflow check has not been completed.
+
+Statuses describe the code review, not production readiness. Existing local modifications are retained; do not treat this tracker as permission to discard them.
+
+## Lifecycle checklist
+
+| Guide stage | Status | Current evidence and remaining work |
+|---|---|---|
+| 1. Lifecycle and record links | **Partial** | Offer acceptance now creates an `ONBOARDING` employee record, links it to the candidate, and preserves candidate history. Employee activation waits for HR document/detail checks. No unified lifecycle view or live end-to-end handoff verification yet. |
+| 2. Recruitment: requisition to offer | **Partial** | HR approval now requires a per-job applicant cap; public listings stop at the cap and applications recheck it at submission. Eligibility rejects retain a reason, interviews save schedule details and email, grades accept outstanding/passed/failed, and failed/declined offers enter the rejection archive (`INTERVIEW_FAILED` / `OFFER_FAILED`). Passed candidates get a result email; offers include HR-authored onboarding instructions and required documents. HR recruitment actions now require HR-role authentication; requisition creation permits a linked HOD and forces their linked department. The HOD ESS route and requisition decision audit remain open. SMTP delivery depends on server configuration. |
+| 3. Onboarding | **Partial â€” main handoff implemented** | Offer acceptance creates an employee in `ONBOARDING` and a required-document checklist. Candidate secure-link form collects personal, contact, family/NOK, statutory and bank details and uploads supported files. HR onboarding queue supports authenticated document download, verified/rejected decisions, and finalization only when required documents and key details are complete. Rejected/missing documents trigger a replacement reminder link. Completion audit/history and a full real-world mail/upload walkthrough remain outstanding. |
+| 4. Employee Directory | **Implemented in code; backend restart still needed** | Directory supports full legacy employee fields, role, search/filter, profile view/edit, CSV import/export, document upload/download, temporary login issuance, and soft archive. Generated and manually signed employment contracts are also saved as employee documents for HR download from the profile. Ten legacy employee records have been copied into the new PostgreSQL database by legacy ID: nine created and one merged with an existing linked employee, bringing the new directory to 13 records. Passwords were not copied; the existing linked account and its role were preserved. Old records had no saved document paths. The API serving the browser is still the older process, so the new fields and actions are not live until it is restarted. |
+| 5. Contracts | **Implemented in code; runtime pending** | HR can create a printable, downloadable employment-agreement draft with editable terms, issue it for employee in-app name/consent signing, upload a manually signed copy, and activate a signed contract. Documents are linked in the employee directory, and employees can review, sign, and download their own issued agreement in ESS. HR sets an optional expiry reminder lead time per fixed-term contract; the HR dashboard creates an expiry notification when refreshed during that window and marks past-end contracts expired. The agreement clauses are an internal draft, not legal advice, and require HR/legal review. Contract schema migration and backend restart remain pending. |
+| 6. Attendance and shifts | **Partial** | Authenticated check-in/check-out and attendance listing exist; HOD queries are department-scoped. Shift administration and full payroll handoff are not established. |
+| 7. Leave | **Implemented in code; runtime pending** | ESS lets employees submit leave with a reason and view status/decision history. Authenticated HOD inbox is limited to their linked department; HOD approvals/rejections require a note and save approver/time. Submission and decisions create HR/admin notifications with structured detail (employee, department, request reason, decision, approver and timestamp); the master dashboard shows decisions and pending queues. The API process currently serving port 8000 is stale, so updated routes still need an app restart before runtime verification. |
+| 8. Payroll and payslips | **Partial** | Payroll generation and employee-scoped payslips exist, with role checks on payroll routes. Approval states, reserved deductions, disbursement, and bank-export confirmation from the guide are not implemented. |
+| 9. Performance | **Implemented in code; runtime pending** | Employees and HODs can self-assess by month in ESS. Employee submissions notify their HOD and HR; completed HOD ratings notify HR. The master dashboard shows live employee/HOD rating averages by department and pending HOD reviews. HOD records behavior indicators, calculated behavior score, final monthly rating, and comments. Completed ratings feed quarter ranking. A synthetic full-cycle walkthrough and best-performer policy approval remain outstanding. |
+| 10. Training | **Not started** | No training model, router, or frontend module was found. |
+| 11. Employee self-service | **Partial** | ESS greets employees by their full name and displays their linked profile fields. Temporary-password logins are forced to a password update with confirmation before other protected routes; every signed-in ESS user can also change their password from the portal using their current password. Successful first change creates an HR dashboard notification. ESS still has unprotected leave calls and other HR/HOD access gaps listed below. |
+| 12. Analytics | **Partial** | An analytics page and API are present. The API currently contains sample summary figures rather than established cross-module live reporting. |
+| 13. Disciplinary cases and grievances | **Partial** | HR can create, list, and resolve open disciplinary cases with a recorded resolution note, reviewer, and timestamp from the master dashboard. Grievance intake, employee responses, case timeline, reporting, and payroll-linked deduction handling are missing. |
+| 14. Offboarding | **Partial** | HR can initiate exits and update clearance to in progress, blocked, or cleared with a note, reviewer, and timestamp from the master dashboard. Asset-level checklist state, settlement, archive record, employee status change, and access closure remain outstanding. |
+| 15. Cross-module data handoffs | **Not verified** | Candidate-to-employee linkage is implemented. Employee-linked contracts, attendance, leave, payroll, performance, self-service, and exit handoffs have not been checked across the full lifecycle. |
+| 16. Process verification | **Not verified** | Frontend production build, targeted lint, Python compilation, contract-template escaping/print-content checks, and contract request validation pass. Database migration and full authenticated workflows have not been run against the active API; the new migrations require a backend restart before runtime verification. No project test suite was found. |
+
+## HOD and requisition target flow
+
+1. A registered HOD signs in and lands in ESS, alongside the employeeâ€™s normal self-service.
+2. The HODâ€™s department comes from the linked employee account; the HOD cannot request a role for another department by editing a form field.
+3. The HOD submits the role, required education/experience, responsibilities, and selection criteria. Those criteria remain attached to the requisition and drive applicant eligibility checks.
+4. The requisition appears in the HR/admin master dashboard as **Pending HR approval**. Only authorized HR/admin users may approve or reject it, with a recorded decision.
+5. Approval publishes the opening to the public careers portal. Rejected or pending requisitions remain unpublished.
+6. Applicants who meet the saved criteria enter the candidate pipeline; ineligible applications retain their rejection reason and do not enter the active pipeline.
+7. The HOD can also view only their departmentâ€™s leave requests, approve/reject with a note, and submit department-scoped performance ratings/comments from ESS.
+
+**Current state:** items 3â€“6 have partial scaffolding, including approval applicant limits and the candidate lifecycle through onboarding. Items 1â€“2 and 7 are not complete; recruitment endpoints still need HR/HOD role enforcement and department scoping before relying on those permissions.
+
+## Cross-cutting blockers
+
+- **Authentication consistency:** login stores the token under `token`; the shared module API clients and layout now accept that key, with `access_token` retained for compatibility. Older Contract and legacy Onboarding screens still read only `access_token`.
+- **Server-side authorization:** recruitment HR actions and onboarding review are role protected, and requisition creation is limited to HR or a department-linked HOD. Leave and several ESS endpoints still do not enforce the callerâ€™s role or employee scope. UI-only role checks are not sufficient.
+- **HOD landing route:** ESS is registered and visible in navigation. Route HOD logins to ESS after login while retaining the normal employee home view.
+- **Decision history:** add approver, decision note, timestamp, and audit entry to HOD leave decisions and HR requisition review.
+- **Recruitment/onboarding operational setup:** configure SMTP credentials and a reachable `FRONTEND_URL`; protect recruitment HR actions; verify upload storage/backups and retention rules before handling real candidate documents.
+
+## Recommended implementation order
+
+1. Standardize login token handling and enforce server-side role/employee authorization.
+2. Register ESS as a protected route and provide HOD landing with employee self-service still available.
+3. Bind requisition creation to the HODâ€™s department; route it to an HR/admin approval queue; keep approved jobs public and unpublished jobs private.
+4. Complete leave approvals with department scoping and decision notes; add the performance rating action to ESS.
+5. Walk one clearly synthetic requisition through application cap, eligibility filtering/rejection archive, candidate review, interview, offer response, candidate document submission, HR review, and employee activation. Use a test mailbox and synthetic documents only.
+6. Continue the lifecycle modules in guide order and add repeatable workflow checks as each handoff is completed.
+
+## Change log
+
+- **9 Nov 2026:** Created this baseline from the process guide and repository inspection. Confirmed one public approved requisition is visible. No candidate records were created for this review.
+- **9 Nov 2026:** Added requisition approval applicant limits, completed interview-result and offer email content, standardized offer-decline archival status/reason, and connected accepted offers to employee-onboarding records. Added the candidate onboarding form, document checklist/upload, HR review/download/finalization flow, required personal/statutory/contact fields, and missing/rejected-document email reminders. Protected recruitment HR actions and bound HOD requisition creation to the linked employee department. Python router/model compilation and the Vite production build succeeded. No database migration was applied manually, no candidate was submitted, and no real email was sent. SMTP setup, full flow walkthrough, HOD ESS integration, and decision audit remain open.
+
+- **9 Nov 2026:** Updated the existing linked account for malatsujacob@gmail.com to `DEVELOPER`, reset its password to the value supplied in the request (stored as a hash), and retained its linked employee profile. Added developer access across HR, HOD, and employee module controls, registered ESS in navigation, and normalized token lookup in the shared API clients. Schema migration applied to the local PostgreSQL database. Verified login and live HTTP 200 access for requisitions, candidate records, onboarding, payroll, performance, attendance, disciplinary, and exit APIs; frontend `/login` returns HTTP 200. Vite production build and Python imports succeeded. No candidate record or email was created/sent.
+
+- **9 Nov 2026:** Added monthly employee self-assessment, department-scoped HOD pending review inbox, HOD notifications with 30-second refresh while ESS is open, behavior dropdowns/checkbox, live behavior score and final monthly rating with comments, and quarter ranking from completed monthly results. HODs are routed back to ESS instead of rating from the standalone Performance page; Performance stays in the sidebar for HR/developer review. Added and applied the monthly performance schema migration. Verified router compilation, Vite production build, live developer login, and HTTP 200 for self history, pending reviews, notifications, quarter ranking, and the `/ess` and `/performance` frontend routes. No performance sample data was inserted.
+
+- **9 Nov 2026:** Developer and HOD logins now land on the ESS Performance tab. The sidebar Performance shortcut routes them to the same workflow. ESS now shows the signed-in employee monthly history, HOD pending queue, role-scoped monthly records (company-wide for Developer/HR, department-only for HOD), behavior indicators, and quarterly ranking. Confirmed Vite build success, `/ess?section=performance` HTTP 200, Developer login, and HTTP 200 from all performance read APIs. No review data was created.
+
+- **9 Nov 2026:** Added a select control to the ESS HOD performance inbox. The list is populated only from submitted, unrated monthly self-assessments returned by the department-scoped pending-review API; selecting an employee and month opens their review for the final rating. Vite production build passed and the direct ESS performance URL returned HTTP 200.
+- **9 Nov 2026:** Added HR-managed employee profile fields and create/edit controls in the directory, one-time temporary password issuance/reset, forced password change with confirmation, and per-HR-user notifications shown in the master dashboard after an employee changes their temporary password. ESS now uses the employee full name for its greeting and displays profile information; onboarding captures middle name, gender, marital status, phone, and address. Added an idempotent schema migration. Python compilation and Vite production build passed. The frontend dev server reflects the changes; the backend currently answering on port 8000 still exposes its older OpenAPI routes, so the updated backend and migration have not been confirmed live.
+
+- **9 Nov 2026:** Completed leave request and HOD decision flow in code. Leave requests are tied to the authenticated employee, department HODs see only their department, and approvals/rejections require a decision note and record approver/time. HR/admin and the relevant HOD are notified on submission; HR/admin receive structured decision notifications. The master dashboard can expand a notification to show employee, department, requested dates/reason, decision, approver, and time. Added migration for leave decision audit and notification details, plus ESS request/history and HOD actions. Developer accounts also receive the HR audit notifications for cross-role review. Runtime remains unverified because the API on port 8000 is serving an older process and the local Python interpreter lacks FastAPI.
+
+- **9 Nov 2026:** Carried the legacy employee directory into the Python/React HRMS. Added DOB, nationality, reporting manager, work location, employment type, probation/notice periods, contract end date, legacy employee ID/role/dept fields, complete employee form/profile, CSV import/export, document upload/download, and soft archive. Updated the old directory CSV export to provide matching headers and exclude password hashes. Applied the profile schema changes to the new PostgreSQL database and migrated all 10 old employee records: 9 new records plus 1 merged by email with the existing linked employee; added 3 missing departments; new directory total is 13. Legacy roles are preserved for display and mapped if HR issues new login credentials. No old passwords were imported. Backend syntax and frontend build checks are being completed; the API on port 8000 still serves the old app process and must be restarted to expose the new fields and actions in-browser.
+
+=== AI_INSTRUCTIONS.md ===
+# HUMAN_RESOURCE HRMS MASTER BLUEPRINT
+
+## STACK
+FastAPI (Python), PostgreSQL, React (Vite), Vanilla CSS, Axios.
+
+## COMPLETED MODULES
+1. Auth (JWT)
+2. Employee Directory
+3. Recruitment (Backend API exists, needs PublicApply.jsx)
+4. Onboarding & Contracts
+5. Attendance & Leave
+6. Payroll
+
+## REMAINING TASKS
+1. Build rontend/src/pages/recruitment/PublicApply.jsx (Public form to apply).
+2. Update App.jsx to route /apply publicly.
+3. Performance Module (HOD ratings).
+4. Disciplinary Module.
+5. Exit & Clearance (Archive employees).
+6. Analytics Dashboard.
+
+## RULES
+- Roles: EMPLOYEE, HOD, HR, FINANCE, MANAGEMENT.
+- HR sees all. HOD sees department. Employee sees self.
+- Never overwrite completed backend files unless instructed.
+
+=== README.md ===
+# Chap Chap Africa HRMS
+
+HR management system with a React/Vite frontend, FastAPI backend, and PostgreSQL database.
+
+## Run with Docker Compose
+
+1. Copy `.env.example` to `.env` and set a unique database password and secret key.
+2. Start the application with `docker compose up --build`.
+3. Open the frontend at <http://localhost:3000> and the API docs at <http://localhost:8000/docs>.
+
+The compose file persists PostgreSQL data in a named volume and candidate CV uploads in `uploads/`.
+
+## Run locally
+
+Set `DATABASE_URL` and `SECRET_KEY` in the environment, then install the backend dependencies from `backend/requirements.txt`. Start the API from `backend/` with `uvicorn app.main:app --reload`.
+
+In another terminal, install the frontend dependencies from `frontend/` and run `npm run dev`. Set `VITE_API_BASE_URL` when the API is not available at `http://localhost:8000/api`.
+
+## Project layout
+
+- `backend/app/main.py` registers the API routers and startup migrations.
+- `backend/app/routers/` contains FastAPI route modules.
+- `backend/app/models/` contains SQLAlchemy models.
+- `backend/migrations/` contains SQL migration files.
+- `frontend/src/` contains the React application.
+
+## Payroll control center
+
+The Payroll page provides cycle totals, cost allocation, compliance and overtime exceptions, payroll-register reconciliations, stage approvals, audit search, pay-period trends, and employee payslip/payment-election views. HR and Finance roles can review organization-wide payroll; HOD access is restricted to their department; employee payslips and payment elections are employee-scoped.
+
+Bank-disbursement and tax-funding reconciliation files are parsed in the browser as CSV. Use `employee_id` or `employee_number` plus an `amount`, `net_salary`, or `paye_tax` column. The saved reconciliation includes source totals, file name, and employee-level discrepancies; the original CSV is not uploaded or retained.
+
+Payroll cycle and reconciliation records are stored in PostgreSQL. Existing records are migrated at backend startup. Cost-center, jurisdiction verification, tax-form verification, employer contribution, bonus, overtime-pay, and retro-pay fields are available for the control views; amounts are not inferred when source records do not supply them.
+
+**Production security prerequisites:** this application currently authenticates with its built-in JWT/password login, not an external SSO provider. The deployment also needs an HTTPS reverse proxy and encrypted PostgreSQL storage/backups; the current Compose example does not configure either, and employee bank account values are stored in the employee record. Do not treat the payroll area as meeting SSO or encryption-at-rest requirements until those infrastructure and data-protection changes are completed.

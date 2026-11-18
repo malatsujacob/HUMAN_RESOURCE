@@ -3,6 +3,7 @@ import axios from 'axios'
 import { BriefcaseBusiness, Check, ClipboardList, RefreshCw, Users } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import FlexibleSelect from '../../components/FlexibleSelect'
+import { DEPARTMENTS, getDepartmentName } from '../../constants/departments'
 import './Recruitment.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
@@ -402,7 +403,7 @@ function RecruitmentDashboard() {
                     const applicantCount = candidates.filter((candidate) => candidate.requisition_id === item.id).length
                     return (
                       <tr key={item.id}>
-                        <td><strong className="table-primary">{item.job_title}</strong><br />{item.department_code || '—'}</td>
+                        <td><strong className="table-primary">{item.job_title}</strong><br />{getDepartmentName(item.department_name || item.department_code) || 'Unassigned'}</td>
                         <td>{item.min_education} · {item.min_experience} years</td>
                         <td>{item.description || '—'}</td>
                         <td>{applicantCount} / {item.max_applicants}</td>
@@ -497,7 +498,7 @@ function RecruitmentDashboard() {
               <FlexibleSelect name="min_education" required value={reqData.min_education} onChange={(event) => setReqData({ ...reqData, min_education: event.target.value })} options={['Certificate', 'Diploma', 'Bachelor', 'Master', 'PhD']} placeholder="Select minimum education"/>
             </label>
             <label className="recruitment-field">Minimum experience (years)<input type="number" min="0" required value={reqData.min_experience} onChange={(event) => setReqData({ ...reqData, min_experience: Number(event.target.value) })} /></label>
-            <label className="recruitment-field">Department code<input required value={reqData.department_code} onChange={(event) => setReqData({ ...reqData, department_code: event.target.value })} /></label>
+            <label className="recruitment-field">Department<select required value={reqData.department_code} onChange={(event) => setReqData({ ...reqData, department_code: event.target.value })}><option value="">Select a department</option>{DEPARTMENTS.map(department => <option key={department.code} value={department.code}>{department.name}</option>)}</select></label>
             <label className="recruitment-field">Maximum applicants<input type="number" min="1" required value={reqData.max_applicants} onChange={(event) => setReqData({ ...reqData, max_applicants: Number(event.target.value) })} /></label>
             <label className="recruitment-field">Note for HR<textarea rows="4" required value={reqData.description} onChange={(event) => setReqData({ ...reqData, description: event.target.value })} placeholder="Explain why the role is needed and any useful context." /></label>
             <button className="recruitment-primary-button" type="submit" disabled={saving}>{saving ? 'Submitting…' : 'Submit for HR approval'}</button>

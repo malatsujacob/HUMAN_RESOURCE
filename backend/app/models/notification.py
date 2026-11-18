@@ -8,6 +8,8 @@ class Notification(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     recipient_employee_id = Column(UUID(as_uuid=True))
     recipient_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sender_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    in_reply_to_id = Column(UUID(as_uuid=True), ForeignKey("notifications.id", ondelete="CASCADE"), index=True)
     type = Column(String(50))
     title = Column(String(100))
     message = Column(String(255))

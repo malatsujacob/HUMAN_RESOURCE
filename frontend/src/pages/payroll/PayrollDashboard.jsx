@@ -6,6 +6,7 @@ import {
   LockKeyhole, RefreshCw, Search, ShieldCheck, Upload, Wallet,
 } from 'lucide-react'
 import './Payroll.css'
+import { getDepartmentName } from '../../constants/departments'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
 const ORG_ROLES = new Set(['HR', 'HR_ADMIN', 'ADMIN', 'FINANCE', 'MANAGEMENT', 'DEVELOPER'])
@@ -353,7 +354,7 @@ export default function PayrollDashboard() {
     const groupRows = new Map()
     for (const item of includedRecords) {
       const key = grouping === 'department'
-        ? item.department_name || 'Unassigned department'
+        ? getDepartmentName(item.department_name) || 'Unassigned department'
         : grouping === 'location'
           ? item.work_location || 'Location not set'
           : item.cost_center || 'Cost center not assigned'
@@ -524,7 +525,7 @@ export default function PayrollDashboard() {
   const exportCompliance = () => downloadCsv(
     `payroll-compliance-${selectedPeriod}.csv`,
     ['Employee', 'Employee number', 'Department', 'Exception'],
-    filteredCompliance.map(item => [item.employee_name, item.employee_number, item.department_name, item.field]),
+    filteredCompliance.map(item => [item.employee_name, item.employee_number, getDepartmentName(item.department_name) || 'Unassigned department', item.field]),
   )
 
   const navTabs = hasPayrollControl
@@ -648,13 +649,13 @@ export default function PayrollDashboard() {
                 {preRunMissing.length > 0 && <div className="payroll-alert warning"><AlertTriangle size={17} />{preRunMissing.length} active employees do not yet have a payslip for this cycle.</div>}
                 <PayrollRecordTable rows={selectedNetAlerts} onEmployeeClick={openEmployeePayslip} />
                 {selectedNetAlerts.length === 0 && <p className="payroll-empty">No zero or null net pay amounts in this cycle.</p>}
-                {preRunMissing.length > 0 && <div className="payroll-table-wrap"><table className="payroll-table"><thead><tr><th>Employee</th><th>Department</th><th>Issue</th></tr></thead><tbody>{preRunMissing.map(item => <tr key={item.employee_id}><td>{item.employee_name} <small>{item.employee_number}</small></td><td>{item.department_name || 'Unassigned'}</td><td><StateBadge value="NO PAYSLIP YET" /></td></tr>)}</tbody></table></div>}
+                {preRunMissing.length > 0 && <div className="payroll-table-wrap"><table className="payroll-table"><thead><tr><th>Employee</th><th>Department</th><th>Issue</th></tr></thead><tbody>{preRunMissing.map(item => <tr key={item.employee_id}><td>{item.employee_name} <small>{item.employee_number}</small></td><td>{getDepartmentName(item.department_name) || 'Unassigned'}</td><td><StateBadge value="NO PAYSLIP YET" /></td></tr>)}</tbody></table></div>}
               </section>
 
               <section className="payroll-panel">
                 <SectionTitle eyebrow="COMPLIANCE" title="Employee compliance exceptions" description="Missing tax IDs/forms, absent or stale jurisdiction addresses, and unmapped departments." action={<button className="payroll-secondary" type="button" onClick={exportCompliance}><Download size={15} />Export CSV</button>} />
                 <div className="payroll-toolbar"><label className="payroll-search"><Search size={16} /><input value={complianceSearch} onChange={event => setComplianceSearch(event.target.value)} placeholder="Search employee, ID, department…" /></label>                <select value={complianceFilter} onChange={event => setComplianceFilter(event.target.value)}><option value="all">All exception fields</option><option value="department">Missing department mapping</option><option value="tax_id">Missing tax ID</option><option value="tax_form">Missing tax form</option><option value="address">Missing / outdated jurisdiction</option><option value="address_old">Outdated jurisdiction only</option></select></div>
-                <div className="payroll-table-wrap"><table className="payroll-table"><thead><tr><th>Employee</th><th>Department</th><th>Missing / invalid field</th><th>Review status</th></tr></thead><tbody>{filteredCompliance.map((item, index) => <tr key={`${item.employee_id}:${item.key}:${index}`}><td>{item.employee_name}<small>{item.employee_number}</small></td><td>{item.department_name || 'Unassigned'}</td><td><strong>{item.field}</strong></td><td><StateBadge value="ACTION REQUIRED" /></td></tr>)}{filteredCompliance.length === 0 && <tr><td className="payroll-empty" colSpan="4">No compliance exceptions match these filters.</td></tr>}</tbody></table></div>
+                <div className="payroll-table-wrap"><table className="payroll-table"><thead><tr><th>Employee</th><th>Department</th><th>Missing / invalid field</th><th>Review status</th></tr></thead><tbody>{filteredCompliance.map((item, index) => <tr key={`${item.employee_id}:${item.key}:${index}`}><td>{item.employee_name}<small>{item.employee_number}</small></td><td>{getDepartmentName(item.department_name) || 'Unassigned'}</td><td><strong>{item.field}</strong></td><td><StateBadge value="ACTION REQUIRED" /></td></tr>)}{filteredCompliance.length === 0 && <tr><td className="payroll-empty" colSpan="4">No compliance exceptions match these filters.</td></tr>}</tbody></table></div>
                 {invalidMappingRows.length > 0 && <div className="payroll-alert warning"><AlertTriangle size={17} />{invalidMappingRows.length} payroll record(s) without valid employee or department mapping are excluded from totals.</div>}
                 {invalidMappingRows.length > 0 && <PayrollRecordTable rows={invalidMappingRows} onEmployeeClick={openEmployeePayslip} />}
                 {unmappedPayCodes.length > 0 && <><div className="payroll-alert warning"><CircleAlert size={17} />{unmappedPayCodes.length} record(s) use pay codes without a reporting category and are excluded from dashboard totals.</div><PayrollRecordTable rows={unmappedPayCodes} onEmployeeClick={openEmployeePayslip} /></>}
@@ -766,5 +767,5 @@ function PayrollRecordTable({ rows, onEmployeeClick }) {
 
 function EmployeeDetail({ item, onClose }) {
   if (!item) return <div className="payroll-alert warning"><AlertTriangle size={17} />The selected payroll record has no employee mapping and is excluded from financial totals.</div>
-  return <div className="payroll-employee-detail"><div><div><span className="payroll-eyebrow">EMPLOYEE PAYROLL RECORD</span><h3>{employeeName(item)}</h3><p>{item.employee_number} · {item.department_name || 'Department not mapped'} · {item.pay_period}</p></div><button className="payroll-secondary" type="button" onClick={onClose}>Close</button></div><div className="payroll-detail-grid">{[['Employee ID', item.employee_id], ['Pay code', item.pay_code || 'BASE_WAGES'], ['Gross', formatMoney(item.gross_salary)], ['PAYE tax', formatMoney(item.paye_tax)], ['NSSF deduction', formatMoney(item.nssf_deduction)], ['Employer pension', formatMoney(item.employer_pension)], ['Employer social contributions', formatMoney(item.employer_social_contribution)], ['Other employer contribution', formatMoney(item.employer_contribution)], ['Bonus', formatMoney(item.bonus_amount)], ['Overtime', formatMoney(item.overtime_amount)], ['Retro adjustment', formatMoney(item.retro_amount)], ['Retro reason', item.retro_reason || 'Not recorded'], ['Retro source', item.retro_source || 'Not recorded'], ['Back-pay verification', item.retro_verified || 'PENDING']].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div>
+  return <div className="payroll-employee-detail"><div><div><span className="payroll-eyebrow">EMPLOYEE PAYROLL RECORD</span><h3>{employeeName(item)}</h3><p>{item.employee_number} · {getDepartmentName(item.department_name) || 'Department not mapped'} · {item.pay_period}</p></div><button className="payroll-secondary" type="button" onClick={onClose}>Close</button></div><div className="payroll-detail-grid">{[['Employee ID', item.employee_id], ['Pay code', item.pay_code || 'BASE_WAGES'], ['Gross', formatMoney(item.gross_salary)], ['PAYE tax', formatMoney(item.paye_tax)], ['NSSF deduction', formatMoney(item.nssf_deduction)], ['Employer pension', formatMoney(item.employer_pension)], ['Employer social contributions', formatMoney(item.employer_social_contribution)], ['Other employer contribution', formatMoney(item.employer_contribution)], ['Bonus', formatMoney(item.bonus_amount)], ['Overtime', formatMoney(item.overtime_amount)], ['Retro adjustment', formatMoney(item.retro_amount)], ['Retro reason', item.retro_reason || 'Not recorded'], ['Retro source', item.retro_source || 'Not recorded'], ['Back-pay verification', item.retro_verified || 'PENDING']].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div>
 }

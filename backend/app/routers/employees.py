@@ -3,7 +3,6 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import csv
 import io
-import re
 import secrets
 import string
 import uuid
@@ -23,6 +22,11 @@ from app.models.employee import Employee
 from app.models.user import User
 from app.models.department import Department
 from app.routers.attendance import get_current_user
+from app.constants.departments import (
+    DEPARTMENT_CATALOG,
+    canonical_department_code,
+    canonical_department_name,
+)
 
 router = APIRouter()
 HR_ROLES = {"HR", "HR_ADMIN", "ADMIN", "MANAGEMENT", "DEVELOPER"}
@@ -84,8 +88,14 @@ def employee_payload(employee: Employee) -> dict:
         "account_number": employee.account_number,
         "has_profile_photo": bool(employee.profile_photo_path),
         "department_id": str(employee.department_id) if employee.department_id else None,
-        "department_code": employee.department.code if employee.department else None,
-        "department_name": employee.department.name if employee.department else None,
+        "department_code": (
+            canonical_department_code(employee.department.code)
+            if employee.department else None
+        ),
+        "department_name": (
+            canonical_department_name(employee.department.code) or employee.department.name
+            if employee.department else None
+        ),
         "job_title": employee.job_title, "reporting_manager": employee.reporting_manager,
         "work_location": employee.work_location,
         "cost_center": employee.cost_center,
@@ -209,7 +219,7 @@ def get_employees(db: Session = Depends(get_db), _user: User = Depends(require_h
 
 @router.get("/departments")
 def get_departments(db: Session = Depends(get_db), _user: User = Depends(require_hr)):
-    return [{"code": item.code, "name": item.name} for item in db.query(Department).order_by(Department.name).all()]
+    return list(DEPARTMENT_CATALOG)
 
 
 @router.get("/me")
@@ -225,7 +235,8 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db), user: Us
     role = normalize_role(emp.role)
     if role not in ALLOWED_USER_ROLES:
         raise HTTPException(status_code=422, detail="Select a valid employee, HOD, or HR role.")
-    dept = db.query(Department).filter(Department.code == emp.department_code).first()
+    department_code = canonical_department_code(emp.department_code)
+    dept = db.query(Department).filter(Department.code == department_code).first()
     if not dept:
         raise HTTPException(status_code=400, detail="Department not found.")
     login_email = str(emp.work_email or emp.personal_email or "").lower()
@@ -298,6 +309,7 @@ def update_employee(employee_id: UUID, update: EmployeeUpdate,
     if department_code is not None:
         before_payroll_values["department_id"] = employee.department_id
     if department_code:
+        department_code = canonical_department_code(department_code)
         department = db.query(Department).filter(Department.code == department_code).first()
         if not department:
             raise HTTPException(status_code=400, detail="Department not found.")
@@ -468,15 +480,11 @@ async def import_legacy_employee_csv(file: UploadFile = File(...), db: Session =
             if not first_name or not last_name:
                 raise ValueError("First and last name are required.")
             department_name = csv_value(row, "department")
-            department = next((d for d in departments if department_name and department_name.casefold() in {d.code.casefold(), d.name.casefold()}), None)
-            if department_name and department is None:
-                code = re.sub(r"[^A-Z0-9]+", "_", department_name.upper()).strip("_")[:30] or f"LEGACY_{old_id}"
-                department = db.query(Department).filter(Department.code == code).first()
-                if department is None:
-                    department = Department(code=code, name=department_name[:100])
-                    db.add(department)
-                    db.flush()
-                    departments.append(department)
+            department_code = canonical_department_code(department_name)
+            department = next(
+                (item for item in departments if item.code == department_code),
+                None,
+            )
             employee = db.query(Employee).filter(Employee.legacy_employee_id == old_id).first()
             was_created = employee is None
             if was_created:
@@ -548,7 +556,11 @@ def export_employees(db: Session = Depends(get_db), _user: User = Depends(requir
                          "physical_address": employee.home_address, "next_of_kin_name": employee.next_of_kin_name,
                          "next_of_kin_relationship": employee.next_of_kin_relationship,
                          "next_of_kin_phone": employee.next_of_kin_phone, "next_of_kin_address": employee.next_of_kin_address,
-                         "department": employee.department.name if employee.department else employee.legacy_department,
+                         "department": (
+                             canonical_department_name(employee.department.code)
+                             or employee.department.name
+                             if employee.department else employee.legacy_department
+                         ),
                          "job_title": employee.job_title, "reporting_manager": employee.reporting_manager,
                          "work_location": employee.work_location, "hire_date": employee.hire_date,
                          "employment_type": employee.employment_type, "probation_period": employee.probation_period,

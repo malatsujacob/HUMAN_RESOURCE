@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { Link, useNavigate } from 'react-router-dom'
-import { Activity, ArrowRight, Bell, BriefcaseBusiness, CalendarCheck2, Clock3, FileText, KeyRound, Users } from 'lucide-react'
+import { Activity, ArrowRight, BriefcaseBusiness, CalendarCheck2, Clock3, FileText, KeyRound, Users } from 'lucide-react'
+import { getDepartmentName } from '../constants/departments'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
 const formatDashboardDate = () => new Intl.DateTimeFormat(undefined, {
@@ -41,11 +42,8 @@ function Home() {
   const [requisitions,setRequisitions]=useState([])
   const [disciplinary,setDisciplinary]=useState([])
   const [exits,setExits]=useState([])
-  const [notifications,setNotifications]=useState([])
-  const [notificationError,setNotificationError]=useState('')
   const [loadError,setLoadError]=useState('')
   const [dashboardDate,setDashboardDate]=useState(formatDashboardDate)
-  const [expandedNotification,setExpandedNotification]=useState('')
   const [selectedEmployee,setSelectedEmployee]=useState('')
   const [credentials,setCredentials]=useState(null)
   const [busy,setBusy]=useState(false)
@@ -87,12 +85,6 @@ function Home() {
       }
     })
     if(failures.length)setLoadError(`Could not load: ${failures.join(', ')}.`)
-    if(isHR){
-      try{
-        const {data}=await axios.get(`${API_BASE}/notifications/hr`,authConfig())
-        setNotifications(data);setNotificationError('')
-      }catch(requestError){setNotificationError(requestError.response?.status===403?'':'HR notifications could not be loaded.')}
-    }
   },[isHR,navigate])
 
   useEffect(()=>{if(isHR)loadDashboard()},[isHR,loadDashboard])
@@ -109,7 +101,12 @@ function Home() {
   const departments=useMemo(()=>{
     const byDepartment=new Map()
     reviews.forEach(review=>{
-      const name=review.department_name||'Unassigned'
+      const rawName=review.department_name
+      const name=getDepartmentName(rawName)||(
+        rawName&& !['undefined','null'].includes(String(rawName).trim().toLowerCase())
+          ? rawName
+          : 'Unassigned'
+      )
       const item=byDepartment.get(name)||{name,employeeTotal:0,selfTotal:0,selfCount:0,hodTotal:0,hodCount:0}
       item.employeeTotal+=1
       if(typeof review.self_rating==='number'){item.selfTotal+=review.self_rating;item.selfCount+=1}
@@ -118,14 +115,6 @@ function Home() {
     })
     return [...byDepartment.values()].sort((a,b)=>a.name.localeCompare(b.name))
   },[reviews])
-
-  const markRead=async notification=>{
-    setNotificationError('')
-    try{
-      await axios.post(`${API_BASE}/notifications/hr/${notification.id}/read`,{},authConfig())
-      setNotifications(items=>items.map(item=>item.id===notification.id?{...item,is_read:true}:item))
-    }catch{setNotificationError('The notification could not be marked as read.')}
-  }
 
   const resetEmployeePassword=async event=>{
     event.preventDefault()
@@ -185,16 +174,6 @@ function Home() {
 
     <section className="summary-grid" aria-label="Live HR statistics">
       {statCards.map(({label,value,detail,icon:Icon,tone})=><article className="summary-card" key={label}><div className="card-topline"><span className={`summary-icon ${tone}`}><Icon size={19} aria-hidden="true"/></span></div><p className="summary-label">{label}</p><strong className="summary-value">{value}</strong><span className="summary-detail">{detail}</span></article>)}
-    </section>
-
-    <section className="card" style={{marginTop:20}}>
-      <div className="panel-heading"><div><h2><Bell size={18} style={{verticalAlign:'middle',marginRight:8}}/>HR response inbox</h2><p className="heading-subtitle">Leave decisions from HODs, first-login updates, signatures, contract alerts, and other HR notifications.</p></div><strong>{notifications.filter(item=>!item.is_read).length} unread</strong></div>
-      {notificationError&&<p className="module-alert error" role="alert">{notificationError}</p>}
-      {notifications.length===0?<p className="ess-muted">No HR notifications yet.</p>:<div style={{display:'grid',gap:8}}>{notifications.slice(0,20).map(item=><article key={item.id} style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:12,padding:'12px 0',borderTop:'1px solid #e6edf2',opacity:item.is_read ? 0.65 : 1}}>
-        <div><strong>{item.title}</strong><p style={{margin:'4px 0'}}>{item.message}</p><small>{new Date(item.created_at).toLocaleString()}</small>
-          {expandedNotification===item.id&&item.details&&<dl style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'8px 18px',margin:'10px 0 0'}}>{Object.entries(item.details).map(([key,value])=><div key={key}><dt style={{fontSize:12,color:'#687887'}}>{key.replaceAll('_',' ')}</dt><dd style={{margin:0,fontWeight:600}}>{String(value)}</dd></div>)}</dl>}
-        </div><div style={{display:'flex',gap:7,alignItems:'flex-start',flexWrap:'wrap'}}><button className="module-secondary-button" type="button" onClick={()=>setExpandedNotification(id=>id===item.id?'':item.id)}>{expandedNotification===item.id?'Hide':'Details'}</button>{!item.is_read&&<button className="module-secondary-button" type="button" onClick={()=>markRead(item)}>Mark read</button>}</div>
-      </article>)}</div>}
     </section>
 
     <section className="card" style={{marginTop:20}}>

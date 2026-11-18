@@ -1,10 +1,13 @@
 ﻿from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
+from app.models.user import User
 from app.models.contract import Contract
 from app.models.performance import PerformanceReview
 from app.models.disciplinary import DisciplinaryCase
 from app.models.payroll import Payslip
+from app.routers.attendance import get_current_user
+from app.services.project_analytics import build_project_analytics
 
 router = APIRouter()
 
@@ -32,11 +35,8 @@ def get_payslips(db: Session = Depends(get_db)):
     return db.query(Payslip).all()
 
 @router.get("/analytics")
-def get_analytics():
-    # A sample analytics endpoint for the dashboard
-    return {
-        "total_employees": 45,
-        "total_payroll_cost": 125000000,
-        "open_positions": 3,
-        "absent_today": 2
-    }
+def get_analytics(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return build_project_analytics(db, user)

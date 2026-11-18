@@ -10,6 +10,7 @@ from app.models.employee import Employee
 from app.models.leave import LeaveRequest
 from app.models.notification import Notification
 from app.models.user import User
+from app.constants.departments import canonical_department_name
 from app.routers.attendance import get_current_user
 
 router = APIRouter()
@@ -48,7 +49,10 @@ def serialize_leave(item: LeaveRequest) -> dict:
         "employee_name": employee_name(employee) if employee else "Unknown employee",
         "employee_number": employee.employee_number if employee else None,
         "department_id": str(employee.department_id) if employee and employee.department_id else None,
-        "department_name": employee.department.name if employee and employee.department else None,
+        "department_name": (
+            canonical_department_name(employee.department.code) or employee.department.name
+            if employee and employee.department else None
+        ),
         "leave_type": item.leave_type, "start_date": item.start_date,
         "end_date": item.end_date, "reason": item.reason, "status": item.status,
         "decision_note": item.decision_note,
@@ -59,13 +63,22 @@ def serialize_leave(item: LeaveRequest) -> dict:
     }
 
 
-def notify_users(db: Session, users: list[User], *, title: str, message: str, details: dict, kind: str) -> None:
+def notify_users(
+    db: Session,
+    users: list[User],
+    *,
+    title: str,
+    message: str,
+    details: dict,
+    kind: str,
+    sender_user_id: UUID,
+) -> None:
     seen = set()
     for recipient in users:
         if recipient.id in seen:
             continue
         seen.add(recipient.id)
-        db.add(Notification(recipient_user_id=recipient.id, type=kind, title=title,
+        db.add(Notification(recipient_user_id=recipient.id, sender_user_id=sender_user_id, type=kind, title=title,
                             message=message[:255], details=details, is_read=False))
 
 
@@ -102,12 +115,17 @@ def request_leave(req: LeaveCreate, db: Session = Depends(get_db), user: User = 
     db.flush()
     details = {
         "event": "Leave request submitted", "employee_name": employee_name(employee),
-        "employee_number": employee.employee_number, "department": employee.department.name if employee.department else "Unassigned",
+        "employee_id": str(employee.id),
+        "employee_number": employee.employee_number,
+        "department": (
+            canonical_department_name(employee.department.code) or employee.department.name
+            if employee.department else "Unassigned"
+        ),
         "leave_type": item.leave_type, "start_date": item.start_date.isoformat(), "end_date": item.end_date.isoformat(),
         "employee_reason": item.reason, "status": item.status, "submitted_at": datetime.now(timezone.utc).isoformat(),
     }
-    notify_users(db, hr_users(db), title="New leave request", message=f"{employee_name(employee)} submitted a {item.leave_type.lower()} leave request.", details=details, kind="LEAVE_REQUEST_SUBMITTED")
-    notify_users(db, hod_users(db, employee.department_id), title="Leave request needs your review", message=f"{employee_name(employee)} submitted a {item.leave_type.lower()} leave request.", details=details, kind="LEAVE_REQUEST_SUBMITTED")
+    notify_users(db, hr_users(db), title="New leave request", message=f"{employee_name(employee)} submitted a {item.leave_type.lower()} leave request.", details=details, kind="LEAVE_REQUEST_SUBMITTED", sender_user_id=user.id)
+    notify_users(db, hod_users(db, employee.department_id), title="Leave request needs your review", message=f"{employee_name(employee)} submitted a {item.leave_type.lower()} leave request.", details=details, kind="LEAVE_REQUEST_SUBMITTED", sender_user_id=user.id)
     db.commit()
     return {"message": "Leave request submitted to your department HOD and HR.", "status": item.status, "id": str(item.id)}
 
@@ -151,9 +169,13 @@ def decide(leave_id: UUID, decision: str, req: LeaveReview, db: Session, user: U
     item.decided_at = datetime.now(timezone.utc)
     db.flush()
     decided_by = employee_name(user.employee) if user.employee else user.email
-    department = item.employee.department.name if item.employee.department else "Unassigned"
+    department = (
+        canonical_department_name(item.employee.department.code) or item.employee.department.name
+        if item.employee.department else "Unassigned"
+    )
     details = {
         "event": "Leave request decision", "employee_name": employee_name(item.employee),
+        "employee_id": str(item.employee.id),
         "employee_number": item.employee.employee_number, "department": department,
         "leave_type": item.leave_type, "start_date": item.start_date.isoformat(), "end_date": item.end_date.isoformat(),
         "employee_reason": item.reason, "decision": decision, "decision_note": item.decision_note,
@@ -161,7 +183,7 @@ def decide(leave_id: UUID, decision: str, req: LeaveReview, db: Session, user: U
     }
     notify_users(db, hr_users(db), title=f"Leave {decision.lower()}",
                  message=f"{employee_name(item.employee)}'s leave request was {decision.lower()} by {decided_by} ({department}).",
-                 details=details, kind="LEAVE_REQUEST_DECIDED")
+                 details=details, kind="LEAVE_REQUEST_DECIDED", sender_user_id=user.id)
     db.commit()
     return {"message": f"Leave request {decision.lower()}.", "leave": serialize_leave(item)}
 

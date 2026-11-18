@@ -11,10 +11,17 @@ from sqlalchemy.orm import Session, joinedload
 from app.routers.attendance import get_current_user, get_db
 from app.models.attendance import Attendance
 from app.models.employee import Employee
+from app.models.department import Department
 from app.models.payroll import PayrollAuditEvent, PayrollCycle, PayrollReconciliation, Payslip
 from app.models.user import User
+from app.constants.departments import (
+    DEPARTMENT_CATALOG,
+    canonical_department_code,
+    canonical_department_name,
+)
 
 router = APIRouter()
+DEPARTMENT_CODES = tuple(item["code"] for item in DEPARTMENT_CATALOG)
 PAYROLL_ROLES = {"HR", "HR_ADMIN", "ADMIN", "FINANCE", "MANAGEMENT", "DEVELOPER"}
 PAY_CODE_CATEGORIES = {
     "BASE_WAGES": "Wages",
@@ -165,7 +172,11 @@ def generate_payroll(
         if employee.id in existing_employee_ids:
             skipped_count += 1
             continue
-        if employee.department_id is None or employee.department is None:
+        if (
+            employee.department_id is None
+            or employee.department is None
+            or canonical_department_code(employee.department.code) is None
+        ):
             skipped_count += 1
             continue
         if employee.base_salary is None or employee.base_salary < 0:
@@ -285,11 +296,19 @@ def get_all_payslips(
             ) or None,
             "employee_number": item.employee.employee_number if item.employee else None,
             "department_id": item.employee.department_id if item.employee else None,
-            "department_name": item.employee.department.name if item.employee and item.employee.department else None,
+            "department_name": (
+                canonical_department_name(item.employee.department.code)
+                if item.employee and item.employee.department else None
+            ),
             "cost_center": item.employee.cost_center if item.employee else None,
             "work_location": item.employee.work_location if item.employee else None,
             "employee_valid": item.employee is not None,
-            "department_valid": bool(item.employee and item.employee.department_id and item.employee.department),
+            "department_valid": bool(
+                item.employee
+                and item.employee.department_id
+                and item.employee.department
+                and canonical_department_code(item.employee.department.code)
+            ),
         }
         for item in payslips
     ]
@@ -401,10 +420,16 @@ def update_cycle_stage(
         payslip_count = db.query(Payslip.id).filter(Payslip.pay_period == pay_period).count()
         if payslip_count == 0:
             raise HTTPException(status_code=409, detail="Generate payroll records before submitting the cycle for approval")
-        unmapped_employee_count = db.query(Employee.id).filter(
-            Employee.status == "ACTIVE",
-            Employee.department_id.is_(None),
-        ).count()
+        unmapped_employee_count = (
+            db.query(Employee.id)
+            .outerjoin(Department, Employee.department_id == Department.id)
+            .filter(
+                Employee.status == "ACTIVE",
+                (Employee.department_id.is_(None))
+                | (~Department.code.in_(DEPARTMENT_CODES)),
+            )
+            .count()
+        )
         if unmapped_employee_count:
             raise HTTPException(status_code=409, detail="Resolve active employees without department mappings before approval")
     cycle.stage = request.stage
@@ -579,8 +604,15 @@ def get_payroll_compliance(
                 part for part in [employee.first_name, employee.middle_name, employee.last_name] if part
             ),
             "employee_number": employee.employee_number,
-            "department_name": employee.department.name if employee.department else None,
-            "department_valid": bool(employee.department_id and employee.department),
+            "department_name": (
+                canonical_department_name(employee.department.code)
+                if employee.department else None
+            ),
+            "department_valid": bool(
+                employee.department_id
+                and employee.department
+                and canonical_department_code(employee.department.code)
+            ),
             "tax_id_present": bool(employee.tin_number),
             "tax_form_present": any(
                 "tin" in (document.document_type or "").lower()

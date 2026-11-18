@@ -35,6 +35,11 @@
 .ess-table { width:100%; border-collapse:collapse; font-size:12px; }
 .ess-table th,.ess-table td { padding:10px; border-bottom:1px solid #e7edf2; text-align:left; }
 .ess-table th { color:#708191; font-size:10px; text-transform:uppercase; letter-spacing:.05em; }
+.employee-profile-link { display:grid; gap:4px; padding:0; border:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.employee-profile-link strong { color:#176f96; }
+.employee-profile-link:hover strong { text-decoration:underline; }
+.employee-profile-link:focus-visible { outline:2px solid #1675a4; outline-offset:3px; }
+.employee-profile-link small { color:#718192; }
 .ess-rating-note { margin:0; color:#647c8f; font-size:11px; line-height:1.5; }
 .ess-review-backdrop { position:fixed; z-index:1000; inset:0; display:grid; place-items:center; overflow:auto; padding:20px; background:rgba(23,39,54,.45); }
 .ess-review-modal { width:min(100%,760px); max-height:calc(100vh - 40px); overflow:auto; margin:0!important; box-shadow:0 16px 48px rgba(18,42,60,.2)!important; }

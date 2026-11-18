@@ -18,6 +18,8 @@ from app.routers import (
     training as training_api,
 )
 from app.services.migrations import (
+    upgrade_department_catalog,
+    upgrade_notification_center,
     upgrade_leave_approval,
     upgrade_onboarding_contracts,
     upgrade_recruitment_pipeline,
@@ -36,6 +38,8 @@ from app.services.migrations import (
 from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
+upgrade_department_catalog()
+upgrade_notification_center()
 upgrade_recruitment_pipeline()
 upgrade_recruitment_workflow()
 upgrade_recruitment_onboarding()

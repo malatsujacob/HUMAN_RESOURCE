@@ -16,6 +16,7 @@ from app.models.employee import Employee
 from app.models.employee_document import EmployeeDocument
 from app.models.recruitment import Candidate
 from app.models.user import User
+from app.constants.departments import canonical_department_name
 from app.routers.attendance import get_current_user
 from app.routers.recruitment import send_candidate_email
 
@@ -81,7 +82,11 @@ def serialize_onboarding(candidate: Candidate, db: Session) -> dict:
         "employee_number": employee.employee_number, "first_name": candidate.first_name,
         "middle_name": employee.middle_name, "last_name": candidate.last_name, "email": candidate.email,
         "phone_number": candidate.phone_number, "job_title": employee.job_title,
-        "department_name": candidate.requisition.department.name if candidate.requisition and candidate.requisition.department else None,
+        "department_name": (
+            canonical_department_name(candidate.requisition.department.code)
+            or candidate.requisition.department.name
+            if candidate.requisition and candidate.requisition.department else None
+        ),
         "status": candidate.status, "documents": [serialize_document(doc) for doc in docs],
         "personal_details": {
             "personal_email": employee.personal_email, "work_email": employee.work_email,

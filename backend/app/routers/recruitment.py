@@ -24,6 +24,10 @@ from app.models.employee_document import EmployeeDocument
 from app.models.recruitment import Candidate, JobRequisition
 from app.models.user import User
 from app.routers.attendance import get_current_user
+from app.constants.departments import (
+    canonical_department_code,
+    canonical_department_name,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -155,7 +159,14 @@ def requisition_payload(requisition: JobRequisition) -> dict:
     return {
         "id": requisition.id,
         "department_id": requisition.department_id,
-        "department_code": requisition.department.code if requisition.department else None,
+        "department_code": (
+            canonical_department_code(requisition.department.code)
+            if requisition.department else None
+        ),
+        "department_name": (
+            canonical_department_name(requisition.department.code)
+            if requisition.department else None
+        ),
         "job_title": requisition.job_title,
         "min_education": requisition.min_education,
         "min_experience": requisition.min_experience,
@@ -305,7 +316,8 @@ def create_requisition(req: RequisitionCreate, db: Session = Depends(get_db), us
     department_code = req.department_code
     if user.role.upper() == "HOD":
         department = db.query(Department).filter(Department.id == user.employee.department_id).first()
-        department_code = department.code if department else ""
+        department_code = canonical_department_code(department.code) if department else ""
+    department_code = canonical_department_code(department_code)
     dept = db.query(Department).filter(Department.code == department_code).first()
     if not dept:
         raise HTTPException(status_code=400, detail="Department not found.")

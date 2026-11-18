@@ -67,6 +67,7 @@ def change_password(
         for recipient in recipients:
             db.add(Notification(
                 recipient_user_id=recipient.id,
+                sender_user_id=account.id,
                 type="EMPLOYEE_PASSWORD_CHANGED",
                 title="Employee completed first login",
                 message=f"{employee_name} changed their temporary password and activated their account.",
