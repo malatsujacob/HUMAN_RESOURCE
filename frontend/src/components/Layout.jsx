@@ -22,6 +22,11 @@ export default function Layout({ children }) {
     { path: isHR ? '/performance' : '/ess?section=performance', label: 'Performance', icon: <Target size={20} /> },
     ...((isHOD || role === 'DEVELOPER') ? [{ path: '/ess?section=team', label: 'Team Approvals', icon: <ClipboardCheck size={20} /> }] : []),
     { path: isHR ? '/training' : '/ess?section=training', label: 'Training', icon: <GraduationCap size={20} /> },
+    ...(role === 'FINANCE'
+      ? [{ path: '/payroll', label: 'Payroll', icon: <DollarSign size={20} /> }]
+      : !isHR
+        ? [{ path: '/payroll', label: isHOD ? 'Team Payroll' : 'My Pay', icon: <DollarSign size={20} /> }]
+        : []),
     ...(isHR ? [
       { path: '/employees', label: 'Employees', icon: <Users size={20} /> },
       { path: '/recruitment', label: 'Recruitment', icon: <Briefcase size={20} /> },

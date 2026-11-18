@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Activity, ArrowRight, Bell, BriefcaseBusiness, CalendarCheck2, Clock3, FileText, KeyRound, Users } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
-const authConfig = () => ({headers:{Authorization:`******'token')||localStorage.getItem('access_token')||''}`}})
+const formatDashboardDate = () => new Intl.DateTimeFormat(undefined, {
+  weekday: 'long',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+}).format(new Date()).toUpperCase()
+const authConfig = () => ({
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem('token') || localStorage.getItem('access_token') || ''}`,
+  },
+})
 const HR_ROLES = ['HR','HR_ADMIN','ADMIN','MANAGEMENT','DEVELOPER']
 const QUEUE_LINKS = [
   {label:'Employee records & password resets',path:'/employees',icon:Users},
@@ -19,6 +29,7 @@ const QUEUE_LINKS = [
 ]
 
 function Home() {
+  const navigate = useNavigate()
   const role=(localStorage.getItem('role')||'').toUpperCase()
   const isHR=HR_ROLES.includes(role)
   const [employees,setEmployees]=useState([])
@@ -33,7 +44,7 @@ function Home() {
   const [notifications,setNotifications]=useState([])
   const [notificationError,setNotificationError]=useState('')
   const [loadError,setLoadError]=useState('')
-  const [dashboardDate,setDashboardDate]=useState('')
+  const [dashboardDate,setDashboardDate]=useState(formatDashboardDate)
   const [expandedNotification,setExpandedNotification]=useState('')
   const [selectedEmployee,setSelectedEmployee]=useState('')
   const [credentials,setCredentials]=useState(null)
@@ -45,7 +56,6 @@ function Home() {
   const [queueBusy,setQueueBusy]=useState('')
 
   const loadDashboard=useCallback(async()=>{
-    setDashboardDate(new Date().toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'}).toUpperCase())
     setLoadError('')
     const results=await Promise.allSettled([
       axios.get(`${API_BASE}/employees/`,authConfig()),
@@ -60,10 +70,21 @@ function Home() {
     ])
     const setters=[setEmployees,setLeaves,setReviews,setPendingReviews,setContracts,setOnboarding,setRequisitions,setDisciplinary,setExits]
     const labels=['employee records','leave requests','performance reviews','performance items awaiting HOD ratings','contract reminders','onboarding records','requisitions','disciplinary cases','exit records']
+    if(results.some(result=>result.status==='rejected'&&result.reason?.response?.status===401)){
+      localStorage.removeItem('token')
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('role')
+      localStorage.removeItem('email')
+      navigate('/login',{replace:true})
+      return
+    }
     const failures=[]
     results.forEach((result,index)=>{
       if(result.status==='fulfilled') setters[index](result.value.data)
-      else if(result.reason?.response?.status!==403) failures.push(labels[index])
+      else if(result.reason?.response?.status!==403){
+        const status=result.reason?.response?.status
+        failures.push(`${labels[index]} (${status?`HTTP ${status}`:result.reason?.code||'network error'})`)
+      }
     })
     if(failures.length)setLoadError(`Could not load: ${failures.join(', ')}.`)
     if(isHR){
@@ -72,9 +93,13 @@ function Home() {
         setNotifications(data);setNotificationError('')
       }catch(requestError){setNotificationError(requestError.response?.status===403?'':'HR notifications could not be loaded.')}
     }
-  },[isHR])
+  },[isHR,navigate])
 
   useEffect(()=>{if(isHR)loadDashboard()},[isHR,loadDashboard])
+  useEffect(()=>{
+    const timer=window.setInterval(()=>setDashboardDate(formatDashboardDate()),60000)
+    return ()=>window.clearInterval(timer)
+  },[])
   useEffect(()=>{
     if(!isHR)return undefined
     const timer=window.setInterval(loadDashboard,60000)

@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import json
 import os
 import secrets
@@ -91,6 +91,10 @@ def serialize_onboarding(candidate: Candidate, db: Session) -> dict:
             "mother_name": employee.mother_name, "national_id": employee.national_id,
             "tin_number": employee.tin_number, "nssf_number": employee.nssf_number,
             "bank_name": employee.bank_name, "account_number": employee.account_number,
+            "account_name": employee.account_name, "bank_code": employee.bank_code,
+            "branch_code": employee.branch_code, "payment_method": employee.payment_method,
+            "mobile_money_number": employee.mobile_money_number,
+            "cacco_number": employee.cacco_number, "cacco_name": employee.cacco_name,
             "next_of_kin_name": employee.next_of_kin_name,
             "next_of_kin_relationship": employee.next_of_kin_relationship,
             "next_of_kin_phone": employee.next_of_kin_phone,

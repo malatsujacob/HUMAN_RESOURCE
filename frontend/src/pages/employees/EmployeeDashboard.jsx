@@ -8,7 +8,7 @@ const EMPTY_FORM = {
   first_name: '', middle_name: '', last_name: '', date_of_birth: '', gender: '', nationality: '', marital_status: '',
   personal_email: '', work_email: '', phone_number: '', home_address: '',
   father_name: '', mother_name: '', next_of_kin_name: '', next_of_kin_relationship: '', next_of_kin_phone: '', next_of_kin_address: '',
-  department_code: '', job_title: '', reporting_manager: '', work_location: '', hire_date: '', employment_type: '',
+  department_code: '', job_title: '', reporting_manager: '', work_location: '', cost_center: '', jurisdiction_address: '', jurisdiction_updated_at: '', tax_form_updated_at: '', hire_date: '', employment_type: '',
   probation_period: '', notice_period: '', contract_end_date: '', status: 'ACTIVE',
   national_id: '', tin_number: '', nssf_number: '', bank_name: '', account_number: '', base_salary: '', role: 'EMPLOYEE',
 }
@@ -16,9 +16,9 @@ const ROLE_OPTIONS = [['EMPLOYEE','Employee'],['HOD','Head of Department'],['HR'
 const EMPLOYEE_DOCUMENT_TYPES = ['National ID','Academic certificate','TIN certificate','NSSF record','Bank confirmation','Employment contract','Other']
 const FIELD_SECTIONS = [
   { title:'Personal information', fields:[['first_name','First name','text',true],['middle_name','Middle name'],['last_name','Last name','text',true],['date_of_birth','Date of birth','date'],['gender','Gender','select'],['nationality','Nationality'],['marital_status','Marital status','select']] },
-  { title:'Contact and next of kin', fields:[['personal_email','Personal email','email'],['work_email','Work email','email'],['phone_number','Phone number'],['home_address','Home / physical address','text',false,true],['father_name','Father name'],['mother_name','Mother name'],['next_of_kin_name','Next-of-kin full name'],['next_of_kin_relationship','Next-of-kin relationship'],['next_of_kin_phone','Next-of-kin phone'],['next_of_kin_address','Next-of-kin address','text',false,true]] },
-  { title:'Position and employment', fields:[['department_code','Department','department',true],['job_title','Job title','text',true],['role','System role','role',true],['reporting_manager','Reporting manager'],['work_location','Work location'],['hire_date','Hire date','date'],['employment_type','Employment type','select'],['status','Employment status','status'],['probation_period','Probation period'],['notice_period','Notice period'],['contract_end_date','Contract end date','date']] },
-  { title:'Statutory and bank information', fields:[['national_id','National ID'],['tin_number','TIN number'],['nssf_number','NSSF number'],['bank_name','Bank name'],['account_number','Bank account number'],['base_salary','Basic monthly salary (UGX)','number'],['employee_documents','Employee documents','documents']] },
+  { title:'Contact and next of kin', fields:[['personal_email','Personal email','email'],['work_email','Work email','email'],['phone_number','Phone number'],['home_address','Home / physical address','text',false,true],['jurisdiction_address','Tax jurisdiction address','text',false,true],['jurisdiction_updated_at','Jurisdiction last verified','date'],['father_name','Father name'],['mother_name','Mother name'],['next_of_kin_name','Next-of-kin full name'],['next_of_kin_relationship','Next-of-kin relationship'],['next_of_kin_phone','Next-of-kin phone'],['next_of_kin_address','Next-of-kin address','text',false,true]] },
+  { title:'Position and employment', fields:[['department_code','Department','department',true],['job_title','Job title','text',true],['role','System role','role',true],['reporting_manager','Reporting manager'],['work_location','Work location'],['cost_center','Cost center'],['hire_date','Hire date','date'],['employment_type','Employment type','select'],['status','Employment status','status'],['probation_period','Probation period'],['notice_period','Notice period'],['contract_end_date','Contract end date','date']] },
+  { title:'Statutory and bank information', fields:[['national_id','National ID'],['tin_number','TIN number'],['tax_form_updated_at','Tax form last verified','date'],['nssf_number','NSSF number'],['bank_name','Bank name'],['account_number','Bank account number'],['base_salary','Basic monthly salary (UGX)','number'],['employee_documents','Employee documents','documents']] },
 ]
 const FIELD_PLACEHOLDERS = {
   first_name:'Enter the employee’s first name', middle_name:'Enter the middle name, if any', last_name:'Enter the employee’s last name',
@@ -29,7 +29,8 @@ const FIELD_PLACEHOLDERS = {
   next_of_kin_relationship:'e.g. Spouse, parent, sibling', next_of_kin_phone:'+256 7XX XXX XXX',
   next_of_kin_address:'Enter next of kin’s address', department_code:'Select the employee’s department',
   job_title:'Enter the employee’s job title', role:'Select the employee’s system role',
-  reporting_manager:'Enter the manager’s full name', work_location:'e.g. Kampala office or remote',
+  reporting_manager:'Enter the manager’s full name', work_location:'e.g. Kampala office or remote', cost_center:'Enter the assigned cost center code',
+  jurisdiction_address:'Enter the employee’s current tax jurisdiction address',
   hire_date:'Select employment start date', employment_type:'Select employment type', status:'Select employment status',
   probation_period:'e.g. 3 months', notice_period:'e.g. 1 month', contract_end_date:'Select contract end date, if applicable',
   national_id:'Enter national identification number', tin_number:'Enter tax identification number',
@@ -40,8 +41,8 @@ const PROFILE_FIELDS = [
   ['Employee number','employee_number'],['System role','account_role'],['Employment status','status'],['First name','first_name'],['Middle name','middle_name'],['Last name','last_name'],['Date of birth','date_of_birth'],['Gender','gender'],['Nationality','nationality'],['Marital status','marital_status'],
   ['Personal email','personal_email'],['Work email','work_email'],['Login email','account_email'],['Phone number','phone_number'],['Home / physical address','home_address'],
   ['Father name','father_name'],['Mother name','mother_name'],['Next-of-kin full name','next_of_kin_name'],['Next-of-kin relationship','next_of_kin_relationship'],['Next-of-kin phone','next_of_kin_phone'],['Next-of-kin address','next_of_kin_address'],
-  ['Department','department_name'],['Job title','job_title'],['Reporting manager','reporting_manager'],['Work location','work_location'],['Hire date','hire_date'],['Employment type','employment_type'],['Probation period','probation_period'],['Notice period','notice_period'],['Contract end date','contract_end_date'],
-  ['National ID','national_id'],['TIN number','tin_number'],['NSSF number','nssf_number'],['Bank name','bank_name'],['Bank account number','account_number'],['Basic monthly salary (UGX)','base_salary'],
+  ['Department','department_name'],['Job title','job_title'],['Reporting manager','reporting_manager'],['Work location','work_location'],['Cost center','cost_center'],['Tax jurisdiction address','jurisdiction_address'],['Jurisdiction last verified','jurisdiction_updated_at'],['Hire date','hire_date'],['Employment type','employment_type'],['Probation period','probation_period'],['Notice period','notice_period'],['Contract end date','contract_end_date'],
+  ['National ID','national_id'],['TIN number','tin_number'],['Tax form last verified','tax_form_updated_at'],['NSSF number','nssf_number'],['Bank name','bank_name'],['Bank account number','account_number'],['Basic monthly salary (UGX)','base_salary'],
 ]
 const displayValue = value => value === null || value === undefined || value === '' ? 'Not recorded' : String(value)
 const employeeName = employee => employee.full_name || [employee.first_name,employee.middle_name,employee.last_name].filter(Boolean).join(' ') || employee.name || employee.employee_name || `Employee ${employee.employee_number || ''}`.trim()

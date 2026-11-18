@@ -23,3 +23,13 @@ In another terminal, install the frontend dependencies from `frontend/` and run 
 - `backend/app/models/` contains SQLAlchemy models.
 - `backend/migrations/` contains SQL migration files.
 - `frontend/src/` contains the React application.
+
+## Payroll control center
+
+The Payroll page provides cycle totals, cost allocation, compliance and overtime exceptions, payroll-register reconciliations, stage approvals, audit search, pay-period trends, and employee payslip/payment-election views. HR and Finance roles can review organization-wide payroll; HOD access is restricted to their department; employee payslips and payment elections are employee-scoped.
+
+Bank-disbursement and tax-funding reconciliation files are parsed in the browser as CSV. Use `employee_id` or `employee_number` plus an `amount`, `net_salary`, or `paye_tax` column. The saved reconciliation includes source totals, file name, and employee-level discrepancies; the original CSV is not uploaded or retained.
+
+Payroll cycle and reconciliation records are stored in PostgreSQL. Existing records are migrated at backend startup. Cost-center, jurisdiction verification, tax-form verification, employer contribution, bonus, overtime-pay, and retro-pay fields are available for the control views; amounts are not inferred when source records do not supply them.
+
+**Production security prerequisites:** this application currently authenticates with its built-in JWT/password login, not an external SSO provider. The deployment also needs an HTTPS reverse proxy and encrypted PostgreSQL storage/backups; the current Compose example does not configure either, and employee bank account values are stored in the employee record. Do not treat the payroll area as meeting SSO or encryption-at-rest requirements until those infrastructure and data-protection changes are completed.

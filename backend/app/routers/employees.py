@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 from fastapi.responses import StreamingResponse, FileResponse
 from pathlib import Path
 from app.models.employee_document import EmployeeDocument
+from app.models.payroll import PayrollAuditEvent
 
 from app.database import SessionLocal, get_password_hash
 from app.models.employee import Employee
@@ -86,7 +87,12 @@ def employee_payload(employee: Employee) -> dict:
         "department_code": employee.department.code if employee.department else None,
         "department_name": employee.department.name if employee.department else None,
         "job_title": employee.job_title, "reporting_manager": employee.reporting_manager,
-        "work_location": employee.work_location, "hire_date": employee.hire_date,
+        "work_location": employee.work_location,
+        "cost_center": employee.cost_center,
+        "jurisdiction_address": employee.jurisdiction_address,
+        "jurisdiction_updated_at": employee.jurisdiction_updated_at,
+        "tax_form_updated_at": employee.tax_form_updated_at,
+        "hire_date": employee.hire_date,
         "employment_type": employee.employment_type, "probation_period": employee.probation_period,
         "notice_period": employee.notice_period, "contract_end_date": employee.contract_end_date,
         "status": employee.status, "base_salary": str(employee.base_salary) if employee.base_salary is not None else None,
@@ -97,6 +103,18 @@ def employee_payload(employee: Employee) -> dict:
                        "status": doc.status, "submitted_at": doc.submitted_at}
                       for doc in sorted(employee.documents or [], key=lambda row: row.created_at or datetime.min.replace(tzinfo=timezone.utc))],
     }
+
+
+def add_employee_payroll_audit(db: Session, user: User, target: str, action_type: str, before_value=None, after_value=None) -> None:
+    db.add(PayrollAuditEvent(
+        pay_period=date.today().strftime("%Y-%m"),
+        actor_id=user.id,
+        actor_email=user.email,
+        action_type=action_type,
+        target=target,
+        before_value=str(before_value) if before_value is not None else None,
+        after_value=str(after_value) if after_value is not None else None,
+    ))
 
 
 class EmployeeCreate(BaseModel):
@@ -126,6 +144,10 @@ class EmployeeCreate(BaseModel):
     job_title: str = Field(min_length=1, max_length=100)
     reporting_manager: Optional[str] = Field(default=None, max_length=200)
     work_location: Optional[str] = Field(default=None, max_length=200)
+    cost_center: Optional[str] = Field(default=None, max_length=100)
+    jurisdiction_address: Optional[str] = Field(default=None, max_length=500)
+    jurisdiction_updated_at: Optional[date] = None
+    tax_form_updated_at: Optional[date] = None
     hire_date: Optional[date] = None
     employment_type: Optional[str] = Field(default=None, max_length=30)
     probation_period: Optional[str] = Field(default=None, max_length=50)
@@ -163,6 +185,10 @@ class EmployeeUpdate(BaseModel):
     job_title: Optional[str] = Field(default=None, max_length=100)
     reporting_manager: Optional[str] = Field(default=None, max_length=200)
     work_location: Optional[str] = Field(default=None, max_length=200)
+    cost_center: Optional[str] = Field(default=None, max_length=100)
+    jurisdiction_address: Optional[str] = Field(default=None, max_length=500)
+    jurisdiction_updated_at: Optional[date] = None
+    tax_form_updated_at: Optional[date] = None
     hire_date: Optional[date] = None
     employment_type: Optional[str] = Field(default=None, max_length=30)
     probation_period: Optional[str] = Field(default=None, max_length=50)
@@ -195,7 +221,7 @@ def get_my_employee_profile(db: Session = Depends(get_db), user: User = Depends(
 
 
 @router.post("/")
-def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db), _user: User = Depends(require_hr)):
+def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db), user: User = Depends(require_hr)):
     role = normalize_role(emp.role)
     if role not in ALLOWED_USER_ROLES:
         raise HTTPException(status_code=422, detail="Select a valid employee, HOD, or HR role.")
@@ -223,12 +249,25 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db), _user: U
         national_id=emp.national_id, tin_number=emp.tin_number, nssf_number=emp.nssf_number,
         bank_name=emp.bank_name, account_number=emp.account_number, base_salary=emp.base_salary,
         job_title=emp.job_title.strip(), reporting_manager=emp.reporting_manager,
-        work_location=emp.work_location, hire_date=emp.hire_date, employment_type=emp.employment_type,
+        work_location=emp.work_location, cost_center=emp.cost_center,
+        hire_date=emp.hire_date, employment_type=emp.employment_type,
+        jurisdiction_address=emp.jurisdiction_address, jurisdiction_updated_at=emp.jurisdiction_updated_at,
+        tax_form_updated_at=emp.tax_form_updated_at,
         probation_period=emp.probation_period, notice_period=emp.notice_period,
         contract_end_date=emp.contract_end_date, department_id=dept.id, status=emp.status.upper(),
     )
     db.add(employee)
     db.flush()
+    initial_payroll_data = {
+        "base_salary": employee.base_salary,
+        "department_id": employee.department_id,
+        "cost_center": employee.cost_center,
+        "tin_number": employee.tin_number,
+        "nssf_number": employee.nssf_number,
+        "bank_name": employee.bank_name,
+        "account_number": f"****{employee.account_number[-4:]}" if employee.account_number else None,
+    }
+    add_employee_payroll_audit(db, user, str(employee.id), "EMPLOYEE_PAYROLL_DATA_CREATED", None, initial_payroll_data)
     account = User(email=login_email, password_hash=get_password_hash(password), role=role,
                    employee_id=employee.id, must_change_password=True)
     db.add(account)
@@ -244,13 +283,20 @@ def create_employee(emp: EmployeeCreate, db: Session = Depends(get_db), _user: U
 
 @router.put("/{employee_id}")
 def update_employee(employee_id: UUID, update: EmployeeUpdate,
-                    db: Session = Depends(get_db), _user: User = Depends(require_hr)):
+                    db: Session = Depends(get_db), user: User = Depends(require_hr)):
     employee = db.query(Employee).options(joinedload(Employee.user_account)).filter(Employee.id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found.")
     changes = update.model_dump(exclude_unset=True)
     department_code = changes.pop("department_code", None)
     requested_role = changes.pop("role", None)
+    audit_fields = {
+        "base_salary", "tin_number", "nssf_number", "bank_name", "account_number",
+        "cost_center", "jurisdiction_address", "jurisdiction_updated_at", "tax_form_updated_at", "work_location", "status",
+    }
+    before_payroll_values = {field: getattr(employee, field) for field in changes if field in audit_fields}
+    if department_code is not None:
+        before_payroll_values["department_id"] = employee.department_id
     if department_code:
         department = db.query(Department).filter(Department.code == department_code).first()
         if not department:
@@ -270,6 +316,7 @@ def update_employee(employee_id: UUID, update: EmployeeUpdate,
         "next_of_kin_relationship", "next_of_kin_phone", "next_of_kin_address", "national_id", "tin_number",
         "nssf_number", "bank_name", "account_number", "base_salary", "reporting_manager", "work_location",
         "hire_date", "employment_type", "probation_period", "notice_period", "contract_end_date",
+        "cost_center", "jurisdiction_address", "jurisdiction_updated_at", "tax_form_updated_at",
     }
     for field, value in changes.items():
         if isinstance(value, str):
@@ -285,6 +332,18 @@ def update_employee(employee_id: UUID, update: EmployeeUpdate,
         if duplicate:
             raise HTTPException(status_code=409, detail="Another account already uses the selected work or personal email.")
         employee.user_account.email = login_email
+    after_payroll_values = {field: getattr(employee, field) for field in before_payroll_values if field != "department_id"}
+    if "department_id" in before_payroll_values:
+        after_payroll_values["department_id"] = employee.department_id
+    if before_payroll_values != after_payroll_values:
+        safe_before = dict(before_payroll_values)
+        safe_after = dict(after_payroll_values)
+        for values in (safe_before, safe_after):
+            if values.get("account_number"):
+                values["account_number"] = f"****{str(values['account_number'])[-4:]}"
+        add_employee_payroll_audit(
+            db, user, str(employee.id), "EMPLOYEE_PAYROLL_DATA_CHANGED", safe_before, safe_after
+        )
     try:
         db.commit()
     except IntegrityError as error:
@@ -503,13 +562,15 @@ def export_employees(db: Session = Depends(get_db), _user: User = Depends(requir
 
 
 @router.delete("/{employee_id}")
-def archive_employee(employee_id: UUID, db: Session = Depends(get_db), _user: User = Depends(require_hr)):
+def archive_employee(employee_id: UUID, db: Session = Depends(get_db), user: User = Depends(require_hr)):
     employee = db.query(Employee).options(joinedload(Employee.user_account)).filter(Employee.id == employee_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found.")
+    previous_status = employee.status
     employee.status = "EXITED"
     if employee.user_account:
         employee.user_account.is_active = False
+    add_employee_payroll_audit(db, user, str(employee.id), "EMPLOYEE_STATUS_CHANGED", previous_status, employee.status)
     db.commit()
     return {"message": "Employee archived as exited. Their profile and history remain available."}
 
@@ -535,6 +596,7 @@ async def upload_employee_document(employee_id: UUID, document_type: str = Form(
         raise HTTPException(status_code=422, detail="Enter the document type.")
     row = db.query(EmployeeDocument).filter(EmployeeDocument.employee_id == employee.id,
                                               EmployeeDocument.document_type == doc_type).first()
+    before_document = f"{doc_type}:{row.file_name}" if row and row.file_name else None
     if row is None:
         row = EmployeeDocument(employee_id=employee.id, document_type=doc_type)
         db.add(row)
@@ -548,6 +610,8 @@ async def upload_employee_document(employee_id: UUID, document_type: str = Form(
     row.submitted_at = datetime.now(timezone.utc)
     row.reviewed_at = row.submitted_at
     row.reviewed_by = user.id
+    add_employee_payroll_audit(db, user, str(employee.id), "EMPLOYEE_DOCUMENT_UPLOADED",
+                               before_document, f"{doc_type}:{row.file_name}")
     try:
         db.commit()
     except Exception:

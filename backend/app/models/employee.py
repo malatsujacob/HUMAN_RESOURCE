@@ -1,5 +1,5 @@
-import uuid
-from sqlalchemy import Column, String, Date, Numeric, ForeignKey, Integer
+﻿import uuid
+from sqlalchemy import Column, String, Date, Numeric, ForeignKey, Integer, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -34,6 +34,11 @@ class Employee(Base):
     job_title = Column(String(100))
     reporting_manager = Column(String(200))
     work_location = Column(String(200))
+    cost_center = Column(String(100))
+    jurisdiction_address = Column(String(500))
+    jurisdiction_updated_at = Column(Date)
+    tax_form_updated_at = Column(Date)
+    payment_account_updated_at = Column(DateTime(timezone=True))
     employment_type = Column(String(30))
     probation_period = Column(String(50))
     notice_period = Column(String(50))
@@ -44,6 +49,13 @@ class Employee(Base):
     nssf_number = Column(String(20))
     bank_name = Column(String(100))
     account_number = Column(String(50))
+    account_name = Column(String(100))
+    bank_code = Column(String(20))
+    branch_code = Column(String(20))
+    payment_method = Column(String(20), default="BANK")
+    mobile_money_number = Column(String(20))
+    cacco_number = Column(String(50))
+    cacco_name = Column(String(100))
     base_salary = Column(Numeric(15, 2))
     profile_photo_path = Column(String(500))
     
