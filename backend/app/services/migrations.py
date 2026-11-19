@@ -238,3 +238,12 @@ def upgrade_disbursement() -> None:
         for statement in statements:
             if statement.strip():
                 connection.execute(text(statement))
+
+
+def upgrade_disciplinary_enhancements() -> None:
+    migration_path = MIGRATIONS_DIR / "20261119_disciplinary_enhancements.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))

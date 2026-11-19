@@ -34,7 +34,8 @@ from app.services.migrations import (
     upgrade_hr_action_queues,
     upgrade_payroll_controls,
 
-    upgrade_performance_nominations,)
+    upgrade_performance_nominations,
+    upgrade_disciplinary_enhancements,)
 from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
@@ -54,6 +55,7 @@ upgrade_employee_profile_photo()
 upgrade_contract_workflow()
 upgrade_hr_action_queues()
 upgrade_payroll_controls()
+upgrade_disciplinary_enhancements()
 
 app = FastAPI(title="Chap Chap HRMS - Secure Backend")
 
