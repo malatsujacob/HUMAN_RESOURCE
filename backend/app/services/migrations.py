@@ -247,3 +247,21 @@ def upgrade_disciplinary_enhancements() -> None:
         for statement in statements:
             if statement.strip():
                 connection.execute(text(statement))
+
+
+def upgrade_disciplinary_payroll_deduction() -> None:
+    migration_path = MIGRATIONS_DIR / "20261120_disciplinary_payroll_deduction.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+
+
+def upgrade_exit_clearance_items() -> None:
+    migration_path = MIGRATIONS_DIR / "20261123_exit_clearance_items.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
