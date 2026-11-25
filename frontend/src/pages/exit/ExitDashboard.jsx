@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getEmployeeExits,
+  getEmployees,
   getModuleError,
   initiateEmployeeExit,
 } from '../../api/peopleModules.js'
@@ -13,6 +14,11 @@ function ExitDashboard() {
   const role = (window.localStorage.getItem('role') || '').toUpperCase()
   const canManageExits = HR_ROLES.has(role)
   const [exits, setExits] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [employeeId, setEmployeeId] = useState('')
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [employeeListOpen, setEmployeeListOpen] = useState(false)
+  const [employeesLoading, setEmployeesLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -29,10 +35,51 @@ function ExitDashboard() {
     }
   }, [])
 
+  const loadEmployees = useCallback(async () => {
+    try {
+      setEmployees(await getEmployees())
+    } catch (requestError) {
+      setError(getModuleError(requestError))
+    } finally {
+      setEmployeesLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (canManageExits) loadExits()
+    if (canManageExits) {
+      loadExits()
+      loadEmployees()
+    }
     else setLoading(false)
-  }, [canManageExits, loadExits])
+  }, [canManageExits, loadExits, loadEmployees])
+
+  const employeeOptions = useMemo(() => employees
+    .filter((employee) => !['EXITED', 'INACTIVE'].includes(String(employee.status || '').toUpperCase())
+      && !exits.some((item) => item.employee_id === employee.id && item.clearance_status !== 'CLEARED'))
+    .slice()
+    .sort((a, b) => employeeName(a).localeCompare(employeeName(b))), [employees, exits])
+  const filteredEmployees = employeeOptions.filter((employee) => {
+    const search = employeeSearch.trim().toLocaleLowerCase()
+    return !search || [
+      employeeName(employee),
+      employee.employee_number,
+      employee.department_name,
+      employee.legacy_department,
+      employee.job_title,
+    ].some((value) => String(value || '').toLocaleLowerCase().includes(search))
+  })
+
+  function employeeName(employee) {
+    return employee.full_name
+      || [employee.first_name, employee.middle_name, employee.last_name].filter(Boolean).join(' ')
+      || `Employee ${employee.employee_number || ''}`.trim()
+  }
+
+  function selectEmployee(employee) {
+    setEmployeeId(employee.id)
+    setEmployeeSearch(employeeName(employee))
+    setEmployeeListOpen(false)
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -43,12 +90,14 @@ function ExitDashboard() {
     const formData = new FormData(form)
     try {
       await initiateEmployeeExit({
-        employee_id: formData.get('employee_id').trim(),
+        employee_id: employeeId,
         last_working_day: formData.get('last_working_day'),
         reason: formData.get('reason').trim(),
       })
       form.reset()
-      setNotice('Employee exit initiated. Clearance is pending.')
+      setEmployeeId('')
+      setEmployeeSearch('')
+      setNotice('Employee exit initiated. Clearance is pending; any active contract ends on the last working day.')
       await loadExits()
     } catch (requestError) {
       setError(getModuleError(requestError))
@@ -77,9 +126,49 @@ function ExitDashboard() {
           <section className="module-card">
             <h2>Initiate exit</h2>
             <form className="module-form" onSubmit={handleSubmit}>
-              <label>
-                Employee ID
-                <input name="employee_id" required />
+              <label className="employee-picker-field">
+                Employee
+                <input
+                  required
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={employeeListOpen}
+                  aria-controls="exit-employee-options"
+                  autoComplete="off"
+                  value={employeeSearch}
+                  onFocus={() => setEmployeeListOpen(true)}
+                  onBlur={() => setTimeout(() => setEmployeeListOpen(false), 150)}
+                  onChange={(event) => {
+                    setEmployeeSearch(event.target.value)
+                    setEmployeeId('')
+                    setEmployeeListOpen(true)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setEmployeeListOpen(false)
+                  }}
+                  placeholder="Search by name, department, or employee number"
+                />
+                {employeeListOpen && (
+                  <ul id="exit-employee-options" className="employee-picker-options">
+                    {employeesLoading ? (
+                      <li className="disciplinary-employee-empty">Loading employees…</li>
+                    ) : filteredEmployees.length > 0 ? filteredEmployees.map((employee) => (
+                      <li key={employee.id}>
+                        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectEmployee(employee)}>
+                          <strong>{employeeName(employee)}</strong>
+                          <span>
+                            {employee.department_name || employee.legacy_department || 'Department not recorded'}
+                            {employee.employee_number ? ` · ${employee.employee_number}` : ''}
+                          </span>
+                        </button>
+                      </li>
+                    )) : (
+                      <li className="disciplinary-employee-empty">
+                        {employeeOptions.length ? 'No employees match your search.' : 'No eligible employees available.'}
+                      </li>
+                    )}
+                  </ul>
+                )}
               </label>
               <label>
                 Last working day
@@ -89,7 +178,7 @@ function ExitDashboard() {
                 Reason
                 <textarea name="reason" maxLength="500" rows="3" required />
               </label>
-              <button className="btn-primary" type="submit" disabled={submitting}>
+              <button className="btn-primary" type="submit" disabled={submitting || !employeeId}>
                 {submitting ? 'Saving…' : 'Initiate exit'}
               </button>
             </form>
@@ -111,7 +200,17 @@ function ExitDashboard() {
                   <tbody>
                     {exits.map((item) => (
                       <tr key={item.id}>
-                        <td>{item.employee_id}</td>
+                        <td>
+                          {(() => {
+                            const employee = employees.find((record) => record.id === item.employee_id)
+                            return (
+                              <>
+                                <strong>{employee ? employeeName(employee) : item.employee_id}</strong>
+                                {employee && <small style={{ display: 'block' }}>{employee.employee_number} · {employee.department_name || employee.legacy_department || 'Department not recorded'}</small>}
+                              </>
+                            )
+                          })()}
+                        </td>
                         <td>{item.last_working_day}</td>
                         <td>{item.reason}</td>
                         <td>

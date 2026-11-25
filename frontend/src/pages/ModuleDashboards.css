@@ -62,6 +62,61 @@
   font-weight: 600;
 }
 
+.module-form .disciplinary-employee-field,
+.module-form .employee-picker-field {
+  position: relative;
+}
+
+.disciplinary-employee-options,
+.employee-picker-options {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 2px);
+  right: 0;
+  left: 0;
+  max-height: 240px;
+  padding: 4px;
+  margin: 0;
+  overflow-y: auto;
+  border: 1px solid #dfe3eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  list-style: none;
+}
+
+.disciplinary-employee-options li button,
+.employee-picker-options li button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #303044;
+  text-align: left;
+}
+
+.disciplinary-employee-options li button:hover,
+.disciplinary-employee-options li button:focus-visible,
+.employee-picker-options li button:hover,
+.employee-picker-options li button:focus-visible {
+  background: #f1f5f9;
+}
+
+.disciplinary-employee-options li button span,
+.employee-picker-options li button span,
+.disciplinary-employee-empty {
+  color: #7b8190;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.disciplinary-employee-empty {
+  padding: 9px 10px;
+}
+
 .module-form input,
 .module-form select,
 .module-form textarea {

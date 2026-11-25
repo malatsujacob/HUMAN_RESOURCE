@@ -1,0 +1,2 @@
+ALTER TABLE payslips
+    ADD COLUMN IF NOT EXISTS disciplinary_deduction NUMERIC(15, 2) NOT NULL DEFAULT 0;

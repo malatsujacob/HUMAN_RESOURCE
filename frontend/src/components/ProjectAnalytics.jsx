@@ -72,6 +72,109 @@ function BarChart({ items, title, currency = false, compact = false }) {
   )
 }
 
+const CHART_COLORS = ['#4d90b5', '#55a783', '#e2a04b', '#8b79c6', '#d56f76', '#4bafad', '#718192']
+
+function PieChart({ items, title }) {
+  const values = items.map(item => Math.max(Number(item.value) || 0, 0))
+  const total = values.reduce((sum, value) => sum + value, 0)
+  if (!total) return <p className="project-analytics-empty">No records available for this report yet.</p>
+
+  let runningTotal = 0
+  const slices = items.map((item, index) => {
+    const start = runningTotal / total * 100
+    runningTotal += values[index]
+    return {
+      ...item,
+      value: values[index],
+      color: CHART_COLORS[index % CHART_COLORS.length],
+      start,
+      end: runningTotal / total * 100,
+    }
+  })
+  const background = slices
+    .filter(slice => slice.value > 0)
+    .map(slice => `${slice.color} ${slice.start}% ${slice.end}%`)
+    .join(', ')
+
+  return (
+    <div className="project-analytics-pie-layout">
+      <div className="project-analytics-pie" style={{ background: `conic-gradient(${background})` }} role="img" aria-label={`${title}: ${total.toLocaleString()} records`}>
+        <span><strong>{total.toLocaleString()}</strong><small>records</small></span>
+      </div>
+      <ul className="project-analytics-pie-legend">
+        {slices.map((slice, index) => (
+          <li key={`${slice.label}-${index}`}>
+            <span className="project-analytics-pie-swatch" style={{ backgroundColor: slice.color }} aria-hidden="true" />
+            <span className="project-analytics-pie-label" title={slice.label}>{slice.label}</span>
+            <strong>{slice.value.toLocaleString()}</strong>
+            <small>{(slice.value / total * 100).toFixed(0)}%</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function LineChart({ items, title, series = [{ key: 'value', label: 'Records', color: CHART_COLORS[0] }], format = 'number' }) {
+  if (!items?.length) {
+    return <p className="project-analytics-empty">No records available for this report yet.</p>
+  }
+
+  const width = 720
+  const height = 250
+  const left = 54
+  const right = 18
+  const top = 14
+  const bottom = 40
+  const plotWidth = width - left - right
+  const plotHeight = height - top - bottom
+  const maximum = Math.max(...items.flatMap(item => series.map(entry => Number(item[entry.key]) || 0)), 1)
+  const x = index => items.length === 1 ? left + plotWidth / 2 : left + index / (items.length - 1) * plotWidth
+  const y = value => top + plotHeight - (Math.max(Number(value) || 0, 0) / maximum) * plotHeight
+  const labelInterval = Math.max(1, Math.ceil(items.length / 6))
+  const description = items.map(item => (
+    `${item.label}: ${series.map(entry => `${entry.label} ${formatValue(item[entry.key], format)}`).join(', ')}`
+  )).join('; ')
+
+  return (
+    <div className="project-analytics-line-chart">
+      <div className="project-analytics-line-legend" aria-hidden="true">
+        {series.map(entry => <span key={entry.key}><i style={{ backgroundColor: entry.color }} />{entry.label}</span>)}
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}. ${description}`}>
+        {[0, 0.5, 1].map(fraction => {
+          const value = maximum * fraction
+          const yPosition = y(value)
+          return (
+            <g key={fraction}>
+              <line x1={left} x2={width - right} y1={yPosition} y2={yPosition} className="project-analytics-line-grid" />
+              <text x={left - 8} y={yPosition + 3} textAnchor="end" className="project-analytics-line-axis">{formatValue(value, format)}</text>
+            </g>
+          )
+        })}
+        {items.map((item, index) => (
+          (index % labelInterval === 0 || index === items.length - 1) && (
+            <text key={`${item.label}-${index}`} x={x(index)} y={height - 12} textAnchor="middle" className="project-analytics-line-axis">{item.label}</text>
+          )
+        ))}
+        {series.map(entry => {
+          const points = items.map((item, index) => `${x(index)},${y(item[entry.key])}`).join(' ')
+          return (
+            <g key={entry.key}>
+              <polyline points={points} fill="none" stroke={entry.color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+              {items.map((item, index) => (
+                <circle key={`${item.label}-${index}`} cx={x(index)} cy={y(item[entry.key])} r="4" fill={entry.color}>
+                  <title>{`${item.label}: ${entry.label} ${formatValue(item[entry.key], format)}`}</title>
+                </circle>
+              ))}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 function ModuleReport({ moduleKey, report, central = false }) {
   return (
     <article className={`project-analytics-module${central ? ' central' : ''}`}>
@@ -91,16 +194,19 @@ function ModuleReport({ moduleKey, report, central = false }) {
         ))}
       </div>
       <h3 className="project-analytics-chart-title">{report.chart_title}</h3>
-      <BarChart
-        items={report.distribution}
-        title={report.chart_title}
-        currency={moduleKey === 'payroll'}
-        compact={!central}
-      />
-      {central && report.trend?.length > 0 && moduleKey !== 'payroll' && (
+      {moduleKey === 'employees' ? (
+        <BarChart items={report.distribution} title={report.chart_title} compact={!central} />
+      ) : moduleKey === 'performance' ? (
+        <LineChart items={report.distribution} title={report.chart_title} />
+      ) : moduleKey === 'payroll' ? (
+        <LineChart items={report.distribution} title={report.chart_title} format="currency" />
+      ) : (
+        <PieChart items={report.distribution} title={report.chart_title} />
+      )}
+      {report.trend?.length > 0 && moduleKey !== 'payroll' && (
         <>
           <h3 className="project-analytics-chart-title">{report.title} activity by period</h3>
-          <BarChart items={report.trend} title={`${report.title} activity by period`} compact />
+          <LineChart items={report.trend} title={`${report.title} activity by period`} />
         </>
       )}
     </article>
@@ -174,29 +280,17 @@ export function ModuleInsights({ moduleKey }) {
 }
 
 function PayrollTrend({ rows }) {
-  if (!rows?.length) return <p className="project-analytics-empty">No payroll cycles have been recorded yet.</p>
-  const maximum = Math.max(...rows.flatMap(row => [row.gross, row.net, row.tax].map(Number)), 1)
   return (
-    <div className="project-analytics-trend" role="img" aria-label="Gross, net pay, and tax totals by payroll cycle">
-      <div className="project-analytics-legend">
-        <span><i className="gross" />Gross pay</span>
-        <span><i className="net" />Net pay</span>
-        <span><i className="tax" />Tax</span>
-      </div>
-      {rows.map(row => (
-        <div className="project-analytics-trend-row" key={row.label}>
-          <strong>{row.label}</strong>
-          <div className="project-analytics-trend-bars">
-            {['gross', 'net', 'tax'].map(key => (
-              <div className="project-analytics-trend-bar" key={key}>
-                <span className={key} style={{ width: `${Math.max((Number(row[key]) / maximum) * 100, row[key] ? 1 : 0)}%` }} />
-                <small>{key.toUpperCase()} {formatValue(row[key], 'currency')}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
+    <LineChart
+      items={rows}
+      title="Gross, net pay, and tax totals by payroll cycle"
+      format="currency"
+      series={[
+        { key: 'gross', label: 'Gross pay', color: CHART_COLORS[0] },
+        { key: 'net', label: 'Net pay', color: CHART_COLORS[1] },
+        { key: 'tax', label: 'Tax', color: CHART_COLORS[2] },
+      ]}
+    />
   )
 }
 

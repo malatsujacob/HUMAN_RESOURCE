@@ -1,138 +1,370 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   createDisciplinaryCase,
+  getEmployees,
   getDisciplinaryCases,
+  getDisciplinaryAnalytics,
   getModuleError,
-} from '../../api/peopleModules.js'
+} from '../../api/peopleModules'
 import '../ModuleDashboards.css'
 
-const HR_ROLES = new Set(['HR', 'HR_ADMIN', 'ADMIN', 'MANAGEMENT', 'DEVELOPER'])
+const employeeName = (employee) => employee.full_name
+  || [employee.first_name, employee.middle_name, employee.last_name].filter(Boolean).join(' ')
+  || `Employee ${employee.employee_number || ''}`.trim()
 
 function DisciplinaryDashboard() {
-  const role = (window.localStorage.getItem('role') || '').toUpperCase()
-  const canManageCases = HR_ROLES.has(role)
+  const navigate = useNavigate()
+  const [employees, setEmployees] = useState([])
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [employeeListOpen, setEmployeeListOpen] = useState(false)
+  const [employeesLoading, setEmployeesLoading] = useState(true)
   const [cases, setCases] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [caseView, setCaseView] = useState('ALL')
+  const [analytics, setAnalytics] = useState(null)
   const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [form, setForm] = useState({
+    employee_id: '',
+    incident_date: '',
+    description: '',
+    action_taken: '',
+    case_type: 'DISCIPLINARY',
+    category: '',
+    severity: '',
+    policy_breached: '',
+    confidential: false,
+  })
 
-  const loadCases = useCallback(async () => {
-    setError('')
+  const loadCases = async () => {
     try {
-      setCases(await getDisciplinaryCases())
-    } catch (requestError) {
-      setError(getModuleError(requestError))
-    } finally {
-      setLoading(false)
+      const [caseList, stats] = await Promise.all([
+        getDisciplinaryCases(),
+        getDisciplinaryAnalytics().catch(() => null),
+      ])
+      setCases(caseList)
+      setAnalytics(stats)
+    } catch (e) {
+      setError(getModuleError(e))
     }
-  }, [])
+  }
+
+  const loadEmployees = async () => {
+    try {
+      setEmployees(await getEmployees())
+    } catch (e) {
+      setError(getModuleError(e))
+    } finally {
+      setEmployeesLoading(false)
+    }
+  }
 
   useEffect(() => {
-    if (canManageCases) loadCases()
-    else setLoading(false)
-  }, [canManageCases, loadCases])
+    loadCases()
+    loadEmployees()
+  }, [])
 
-  async function handleSubmit(event) {
+  const employeeOptions = employees
+    .slice()
+    .sort((a, b) => employeeName(a).localeCompare(employeeName(b)))
+  const filteredEmployees = employeeOptions.filter((employee) => {
+    const search = employeeSearch.trim().toLocaleLowerCase()
+    return !search || [
+      employeeName(employee),
+      employee.employee_number,
+      employee.department_name,
+      employee.legacy_department,
+    ].some((value) => String(value || '').toLocaleLowerCase().includes(search))
+  })
+  const visibleCases = cases.filter((item) => {
+    if (caseView === 'RESOLVED') return item.status === 'RESOLVED'
+    if (caseView === 'APPEALED') return item.status === 'APPEALED'
+    if (caseView === 'OPEN') return item.status === 'OPEN'
+    return true
+  })
+  const caseViewTitles = {
+    ALL: 'All cases',
+    OPEN: 'Open cases',
+    RESOLVED: 'Resolution reports',
+    APPEALED: 'Appeals',
+  }
+
+  const selectEmployee = (employee) => {
+    setForm({ ...form, employee_id: employee.id })
+    setEmployeeSearch(employeeName(employee))
+    setEmployeeListOpen(false)
+  }
+
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    setSubmitting(true)
-    setError('')
-    setNotice('')
-    const form = event.currentTarget
-    const formData = new FormData(form)
-    const incidentDate = formData.get('incident_date')
-    const payload = {
-      employee_id: formData.get('employee_id').trim(),
-      incident_date: incidentDate,
-      description: formData.get('description').trim(),
-      action_taken: formData.get('action_taken').trim() || null,
-    }
-
+    setError(''); setNotice(''); setSubmitting(true)
     try {
+      const payload = { ...form }
+      if (!payload.action_taken) delete payload.action_taken
+      if (!payload.category) delete payload.category
+      if (!payload.severity) delete payload.severity
+      if (!payload.policy_breached) delete payload.policy_breached
       await createDisciplinaryCase(payload)
-      form.reset()
+      setForm({
+        employee_id: '', incident_date: '', description: '', action_taken: '',
+        case_type: 'DISCIPLINARY', category: '', severity: '', policy_breached: '', confidential: false,
+      })
+      setEmployeeSearch('')
       setNotice('Disciplinary case logged.')
       await loadCases()
-    } catch (requestError) {
-      setError(getModuleError(requestError))
+    } catch (e) {
+      setError(getModuleError(e))
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <section className="module-dashboard">
-      <header className="module-dashboard-heading">
+    <div className="module-page">
+      <header className="module-header">
         <div>
-          <p className="eyebrow">EMPLOYEE RELATIONS</p>
+          <p className="module-kicker">EMPLOYEE RELATIONS</p>
           <h1>Disciplinary</h1>
           <p>Record and review employee relations cases.</p>
         </div>
       </header>
 
-      {error && <p className="module-feedback error" role="alert">{error}</p>}
-      {notice && <p className="module-feedback success" role="status">{notice}</p>}
+      {notice && <div className="module-notice">{notice}</div>}
+      {error && <div className="module-error">{error}</div>}
 
-      {!canManageCases ? (
-        <section className="module-card"><p className="module-empty">Only HR can access disciplinary cases.</p></section>
-      ) : (
-        <>
-          <section className="module-card">
-            <h2>Log a case</h2>
-            <form className="module-form" onSubmit={handleSubmit}>
-              <label>
-                Employee ID
-                <input name="employee_id" required />
-              </label>
-              <label>
-                Incident date
-                <input name="incident_date" type="date" required />
-              </label>
-              <label className="module-form-wide">
-                Description
-                <textarea name="description" maxLength="500" rows="3" required />
-              </label>
-              <label className="module-form-wide">
-                Action taken
-                <textarea name="action_taken" maxLength="255" rows="2" />
-              </label>
-              <button className="btn-primary" type="submit" disabled={submitting}>
-                {submitting ? 'Saving…' : 'Log case'}
-              </button>
-            </form>
-          </section>
-
-          <section className="module-card">
-            <div className="module-card-heading">
-              <div><h2>All cases</h2><p>Disciplinary records across the company.</p></div>
-              <button className="module-secondary-button" type="button" onClick={loadCases} disabled={loading}>Refresh</button>
-            </div>
-            {loading ? (
-              <p className="module-empty" role="status">Loading cases…</p>
-            ) : cases.length === 0 ? (
-              <p className="module-empty">No disciplinary cases have been logged.</p>
-            ) : (
-              <div className="module-table-scroll">
-                <table className="module-table">
-                  <thead><tr><th>Employee ID</th><th>Incident date</th><th>Description</th><th>Action taken</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {cases.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.employee_id}</td>
-                        <td>{item.incident_date}</td>
-                        <td>{item.description}</td>
-                        <td>{item.action_taken || '—'}</td>
-                        <td><span className="module-status">{item.status}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </>
+      {analytics && (
+        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          <div className="module-card">
+            <p className="module-kicker">TOTAL CASES</p>
+            <h2>{analytics.total_cases || 0}</h2>
+          </div>
+          <div className="module-card">
+            <p className="module-kicker">OPEN</p>
+            <h2>{analytics.by_status?.OPEN || 0}</h2>
+          </div>
+          <div className="module-card">
+            <p className="module-kicker">RESOLVED</p>
+            <h2>{analytics.by_status?.RESOLVED || 0}</h2>
+          </div>
+          <div className="module-card">
+            <p className="module-kicker">APPEALED</p>
+            <h2>{analytics.by_status?.APPEALED || 0}</h2>
+          </div>
+        </section>
       )}
-    </section>
+
+      <section className="module-card">
+        <h2>Log a case</h2>
+        <form className="module-form" onSubmit={handleSubmit}>
+          <label className="disciplinary-employee-field">Employee
+            <input
+              required
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={employeeListOpen}
+              aria-controls="disciplinary-employee-options"
+              autoComplete="off"
+              value={employeeSearch}
+              onFocus={() => setEmployeeListOpen(true)}
+              onBlur={() => setTimeout(() => setEmployeeListOpen(false), 150)}
+              onChange={(e) => {
+                setEmployeeSearch(e.target.value)
+                setForm({ ...form, employee_id: '' })
+                setEmployeeListOpen(true)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEmployeeListOpen(false)
+              }}
+              placeholder="Search by employee or department"
+            />
+            {employeeListOpen && (
+              <ul id="disciplinary-employee-options" className="disciplinary-employee-options">
+                {employeesLoading ? (
+                  <li className="disciplinary-employee-empty">Loading employees…</li>
+                ) : filteredEmployees.length > 0 ? filteredEmployees.map((employee) => (
+                  <li key={employee.id}>
+                    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => selectEmployee(employee)}>
+                      <strong>{employeeName(employee)}</strong>
+                      <span>
+                        {employee.department_name || employee.legacy_department || 'Department not recorded'}
+                        {employee.employee_number ? ` · ${employee.employee_number}` : ''}
+                      </span>
+                    </button>
+                  </li>
+                )) : (
+                  <li className="disciplinary-employee-empty">
+                    {employeeOptions.length ? 'No employees match your search.' : 'No employees available.'}
+                  </li>
+                )}
+              </ul>
+            )}
+          </label>
+          <label>Incident date
+            <input type="date" required value={form.incident_date}
+              onChange={(e) => setForm({ ...form, incident_date: e.target.value })} />
+          </label>
+          <label>Case type
+            <select value={form.case_type}
+              onChange={(e) => setForm({ ...form, case_type: e.target.value })}>
+              <option value="DISCIPLINARY">Disciplinary</option>
+              <option value="GRIEVANCE">Grievance</option>
+              <option value="INVESTIGATION">Investigation</option>
+              <option value="APPEAL">Appeal</option>
+            </select>
+          </label>
+          <label>Category
+            <select value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              <option value="">— Select —</option>
+              <option value="MISCONDUCT">Misconduct</option>
+              <option value="ABSENCE">Absence</option>
+              <option value="PERFORMANCE">Performance</option>
+              <option value="HARASSMENT">Harassment</option>
+              <option value="THEFT">Theft</option>
+              <option value="POLICY_BREACH">Policy breach</option>
+              <option value="SAFETY">Safety</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </label>
+          <label>Severity
+            <select value={form.severity}
+              onChange={(e) => setForm({ ...form, severity: e.target.value })}>
+              <option value="">— Select —</option>
+              <option value="MINOR">Minor</option>
+              <option value="MODERATE">Moderate</option>
+              <option value="SERIOUS">Serious</option>
+              <option value="GROSS">Gross misconduct</option>
+            </select>
+          </label>
+          <label>Policy breached
+            <input value={form.policy_breached}
+              onChange={(e) => setForm({ ...form, policy_breached: e.target.value })}
+              placeholder="e.g., Code of Conduct §4.2" />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, gridColumn: '1 / -1' }}>
+            <input type="checkbox" checked={form.confidential}
+              onChange={(e) => setForm({ ...form, confidential: e.target.checked })} />
+            Confidential case
+          </label>
+          <label style={{ gridColumn: '1 / -1' }}>Description
+            <textarea required rows={3} value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="What happened?" />
+          </label>
+          <label style={{ gridColumn: '1 / -1' }}>Action taken
+            <textarea rows={2} value={form.action_taken}
+              onChange={(e) => setForm({ ...form, action_taken: e.target.value })}
+              placeholder="Immediate action taken, if any" />
+          </label>
+          <button className="btn-primary" type="submit" disabled={submitting || !form.employee_id} style={{ gridColumn: '1 / -1' }}>
+            {submitting ? 'Logging…' : 'Log case'}
+          </button>
+        </form>
+      </section>
+
+      <section className="module-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <h2>{caseViewTitles[caseView]}</h2>
+            <p>Review cases, resolution reports, and appeals.</p>
+          </div>
+          <button className="module-secondary-button" type="button" onClick={loadCases}>Refresh</button>
+        </div>
+        <div role="tablist" aria-label="Disciplinary case views" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          {[
+            ['ALL', 'All cases'],
+            ['OPEN', 'Open cases'],
+            ['RESOLVED', 'Resolution reports'],
+            ['APPEALED', 'Appeals'],
+          ].map(([view, label]) => (
+            <button
+              key={view}
+              type="button"
+              role="tab"
+              aria-selected={caseView === view}
+              className={caseView === view ? 'btn-primary' : 'module-secondary-button'}
+              onClick={() => setCaseView(view)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {visibleCases.length === 0 ? (
+          <p className="module-empty">
+            {caseView === 'ALL' ? 'No disciplinary cases have been logged.' : `No ${caseViewTitles[caseView].toLowerCase()} to display.`}
+          </p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="module-table" style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th>Case #</th>
+                  <th>Employee</th>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Category</th>
+                  <th>Severity</th>
+                  <th>Status</th>
+                  {caseView === 'RESOLVED' && <th>Resolution report</th>}
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleCases.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.case_number || '—'}</td>
+                    <td>{c.employee_id?.slice(0, 8)}</td>
+                    <td>{c.incident_date}</td>
+                    <td>{c.case_type || '—'}</td>
+                    <td>{c.category || '—'}</td>
+                    <td>{c.severity || '—'}</td>
+                    <td>{c.status}</td>
+                    {caseView === 'RESOLVED' && (
+                      <td style={{ whiteSpace: 'pre-wrap' }}>{c.resolution_note || 'See the case for its recorded outcome.'}</td>
+                    )}
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="module-secondary-button" type="button"
+                          onClick={() => navigate(`/disciplinary/${c.id}?tab=overview`)}>
+                          View
+                        </button>
+                        {c.status === 'OPEN' && (
+                          <button className="module-secondary-button" type="button"
+                            onClick={() => navigate(`/disciplinary/${c.id}?tab=resolution`)}>
+                            Resolve
+                          </button>
+                        )}
+                        {(c.status === 'RESOLVED' || c.status === 'APPEALED') && (
+                          <>
+                            <button className="module-secondary-button" type="button"
+                              onClick={() => navigate(`/disciplinary/${c.id}?tab=resolution`)}>
+                              Resolution report
+                            </button>
+                          </>
+                        )}
+                        {c.status === 'RESOLVED' && (
+                          <button className="module-secondary-button" type="button"
+                            onClick={() => navigate(`/disciplinary/${c.id}?tab=appeal`)}>
+                            Appeal
+                          </button>
+                        )}
+                        {c.status === 'APPEALED' && (
+                          <button className="module-secondary-button" type="button"
+                            onClick={() => navigate(`/disciplinary/${c.id}?tab=appeal`)}>
+                            Review appeal
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 

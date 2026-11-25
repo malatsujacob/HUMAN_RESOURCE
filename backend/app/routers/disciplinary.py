@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.routers.attendance import get_current_user, get_db
 from app.models.disciplinary import DisciplinaryCase, DisciplinaryEvidence, DisciplinaryOutcome
 from app.models.employee import Employee
+from app.models.payroll import Payslip
 from app.models.user import User
 from typing import List
 from datetime import date as DateType
@@ -33,9 +34,15 @@ class DisciplinaryCaseResponse(BaseModel):
 
     id: UUID
     employee_id: UUID
+    case_number: Optional[str] = None
+    case_type: Optional[str] = None
+    category: Optional[str] = None
+    severity: Optional[str] = None
     incident_date: date
     description: str
     action_taken: Optional[str]
+    policy_breached: Optional[str] = None
+    confidential: bool = False
     status: str
     resolution_note: Optional[str] = None
     resolved_by: Optional[UUID] = None
@@ -297,6 +304,26 @@ def record_outcome(
         raise HTTPException(status_code=404, detail="Case not found.")
     if case.outcome:
         raise HTTPException(status_code=409, detail="This case already has an outcome. Use appeal to update.")
+    if request.payroll_deduction:
+        if request.effective_date is None:
+            raise HTTPException(
+                status_code=422,
+                detail="An effective date is required for a payroll deduction.",
+            )
+        if request.deduction_amount is None or request.deduction_amount <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="A positive deduction amount is required for a payroll deduction.",
+            )
+        pay_period = request.effective_date.strftime("%Y-%m")
+        if db.query(Payslip.id).filter(
+            Payslip.employee_id == case.employee_id,
+            Payslip.pay_period == pay_period,
+        ).first():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Payroll for {pay_period} has already been generated for this employee. Choose a later effective date.",
+            )
     outcome = DisciplinaryOutcome(
         case_id=case_id,
         outcome_type=request.outcome_type,
@@ -305,7 +332,7 @@ def record_outcome(
         expiry_date=request.expiry_date,
         suspension_days=request.suspension_days,
         payroll_deduction=request.payroll_deduction,
-        deduction_amount=request.deduction_amount,
+        deduction_amount=request.deduction_amount if request.payroll_deduction else None,
         decision_by_user_id=user.id,
         decision_notes=request.decision_notes,
     )

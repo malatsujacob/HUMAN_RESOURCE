@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+﻿import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Layout from './components/Layout';
@@ -15,6 +15,7 @@ import LeaveDashboard from './pages/leave/LeaveDashboard';
 import PayrollDashboard from './pages/payroll/PayrollDashboard';
 import PerformanceDashboard from './pages/performance/PerformanceDashboard';
 import DisciplinaryDashboard from './pages/disciplinary/DisciplinaryDashboard';
+import CaseDetail from './pages/disciplinary/CaseDetail';
 import ExitDashboard from './pages/exit/ExitDashboard';
 import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
 import ESSPortal from './pages/ess/ESSPortal';
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="/payroll" element={<ProtectedRoute><PayrollDashboard /></ProtectedRoute>} />
         <Route path="/performance" element={<ProtectedRoute><PerformanceDashboard /></ProtectedRoute>} />
         <Route path="/disciplinary" element={<ProtectedRoute><DisciplinaryDashboard /></ProtectedRoute>} />
+        <Route path="/disciplinary/:id" element={<ProtectedRoute><CaseDetail /></ProtectedRoute>} />
         <Route path="/exit" element={<ProtectedRoute><ExitDashboard /></ProtectedRoute>} />
         <Route path="/analytics" element={<ProtectedRoute><AnalyticsDashboard /></ProtectedRoute>} />
         

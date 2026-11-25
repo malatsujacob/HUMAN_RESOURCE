@@ -304,7 +304,8 @@ export default function PayrollDashboard() {
   )
   const totals = useMemo(() => includedRecords.reduce((sum, item) => {
     sum.gross += amount(item.gross_salary)
-    sum.employeeDeductions += amount(item.nssf_deduction)
+    sum.employeeDeductions += amount(item.nssf_deduction) + amount(item.disciplinary_deduction)
+    sum.disciplinaryDeductions += amount(item.disciplinary_deduction)
     sum.taxes += amount(item.paye_tax)
     sum.net += amount(item.net_salary)
     sum.employerPension += amount(item.employer_pension)
@@ -315,7 +316,7 @@ export default function PayrollDashboard() {
     sum.overtime += amount(item.overtime_amount)
     sum.retro += amount(item.retro_amount)
     return sum
-  }, { gross: 0, employeeDeductions: 0, taxes: 0, net: 0, employer: 0, employerPension: 0, employerSocial: 0, employerOther: 0, bonus: 0, overtime: 0, retro: 0 }), [includedRecords])
+  }, { gross: 0, employeeDeductions: 0, disciplinaryDeductions: 0, taxes: 0, net: 0, employer: 0, employerPension: 0, employerSocial: 0, employerOther: 0, bonus: 0, overtime: 0, retro: 0 }), [includedRecords])
   const reconciliationPass = Math.abs(totals.gross - totals.employeeDeductions - totals.taxes - totals.net) < 0.01
   const costBreakdown = {
     wages: totals.gross + totals.retro,
@@ -575,7 +576,7 @@ export default function PayrollDashboard() {
               {hasPayrollControl && (
                 <div className="payroll-metric-grid">
                   <Metric label="Gross pay" value={formatMoney(totals.gross)} note={`${includedRecords.length} valid payroll record(s)`} icon={Wallet} />
-                  <Metric label="Employee deductions" value={formatMoney(totals.employeeDeductions)} note="NSSF deductions recorded" icon={ArrowDownRight} tone="amber" onClick={() => setShowPayrollDetails(true)} />
+                  <Metric label="Employee deductions" value={formatMoney(totals.employeeDeductions)} note="NSSF and disciplinary penalties" icon={ArrowDownRight} tone="amber" onClick={() => setShowPayrollDetails(true)} />
                   <Metric label="Employer contributions" value={formatMoney(totals.employer)} note="Pension / social contributions" icon={ArrowUpRight} tone="violet" onClick={() => setShowPayrollDetails(true)} />
                   <Metric label="Taxes" value={formatMoney(totals.taxes)} note="PAYE tax withheld" icon={FileCheck2} tone="blue" onClick={() => setShowPayrollDetails(true)} />
                   <Metric label="Net pay" value={formatMoney(totals.net)} note="Employee take-home" icon={Banknote} tone="green" onClick={() => setShowPayrollDetails(true)} />
@@ -592,7 +593,7 @@ export default function PayrollDashboard() {
                         <StateBadge value={reconciliationPass ? 'PASS' : 'FAIL'} />
                       </div>
                       <div className="payroll-breakdown">
-                        {[['Gross pay', totals.gross], ['Employee deductions · NSSF', totals.employeeDeductions], ['Taxes · PAYE', totals.taxes], ['Net pay', totals.net]].map(([label, value], index) => <div key={label} className={index === 3 ? 'emphasis' : ''}><span>{label}</span><strong>{formatMoney(value)}</strong></div>)}
+                        {[['Gross pay', totals.gross], ['Employee deductions · NSSF', totals.employeeDeductions - totals.disciplinaryDeductions], ['Disciplinary penalties', totals.disciplinaryDeductions], ['Taxes · PAYE', totals.taxes], ['Net pay', totals.net]].map(([label, value], index) => <div key={label} className={index === 4 ? 'emphasis' : ''}><span>{label}</span><strong>{formatMoney(value)}</strong></div>)}
                       </div>
                       <button className="payroll-text-button" type="button" onClick={() => setShowPayrollDetails(!showPayrollDetails)}>{showPayrollDetails ? 'Hide' : 'Drill into'} employee payroll details {showPayrollDetails ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>
                       {showPayrollDetails && <PayrollRecordTable rows={includedRecords} onEmployeeClick={openEmployeePayslip} />}
@@ -746,7 +747,7 @@ export default function PayrollDashboard() {
           {activeTab === 'My payslips' && (
             <>
               <section className="payroll-panel"><SectionTitle eyebrow="MY PAY HISTORY" title="Payslips" description="Your personal salary, statutory deductions, and period history." /><PayrollRecordTable rows={records} onEmployeeClick={openEmployeePayslip} /></section>
-              {records.length > 1 && <section className="payroll-panel"><SectionTitle title="Period comparison" description="Compare your latest two payslips." /><div className="payroll-comparison">{records.slice(0, 2).map(item => <article key={item.id}><span>{displayPeriod(item.pay_period)}</span><strong>{formatMoney(item.gross_salary)} gross</strong><small>{formatMoney(item.net_salary)} net · {formatMoney(amount(item.paye_tax) + amount(item.nssf_deduction))} deductions</small></article>)}</div></section>}
+              {records.length > 1 && <section className="payroll-panel"><SectionTitle title="Period comparison" description="Compare your latest two payslips." /><div className="payroll-comparison">{records.slice(0, 2).map(item => <article key={item.id}><span>{displayPeriod(item.pay_period)}</span><strong>{formatMoney(item.gross_salary)} gross</strong><small>{formatMoney(item.net_salary)} net · {formatMoney(amount(item.paye_tax) + amount(item.nssf_deduction) + amount(item.disciplinary_deduction))} deductions</small></article>)}</div></section>}
             </>
           )}
           {activeTab === 'Payment elections' && (
@@ -760,12 +761,12 @@ export default function PayrollDashboard() {
 
 function PayrollRecordTable({ rows, onEmployeeClick }) {
   return <div className="payroll-table-wrap"><table className="payroll-table"><thead><tr><th>Employee</th><th>Gross</th><th>Taxes</th><th>Employee deductions</th><th>Employer contributions</th><th>Net pay</th><th>Code mapping</th></tr></thead><tbody>
-    {rows.map(item => <tr key={item.id}><td><button className="payroll-link-button" type="button" onClick={() => onEmployeeClick(item)}>{employeeName(item)}<small>{item.employee_number || item.employee_id}</small></button></td><td>{formatMoney(item.gross_salary)}</td><td>{formatMoney(item.paye_tax)}</td><td>{formatMoney(item.nssf_deduction)}</td><td>{formatMoney(amount(item.employer_contribution) + amount(item.employer_pension) + amount(item.employer_social_contribution))}</td><td className="payroll-net">{formatMoney(item.net_salary)}</td><td>{item.mappedCategory || <StateBadge value="UNMAPPED" />}</td></tr>)}
+    {rows.map(item => <tr key={item.id}><td><button className="payroll-link-button" type="button" onClick={() => onEmployeeClick(item)}>{employeeName(item)}<small>{item.employee_number || item.employee_id}</small></button></td><td>{formatMoney(item.gross_salary)}</td><td>{formatMoney(item.paye_tax)}</td><td>{formatMoney(amount(item.nssf_deduction) + amount(item.disciplinary_deduction))}<small>NSSF {formatMoney(item.nssf_deduction)} · penalty {formatMoney(item.disciplinary_deduction)}</small></td><td>{formatMoney(amount(item.employer_contribution) + amount(item.employer_pension) + amount(item.employer_social_contribution))}</td><td className="payroll-net">{formatMoney(item.net_salary)}</td><td>{item.mappedCategory || <StateBadge value="UNMAPPED" />}</td></tr>)}
     {rows.length === 0 && <tr><td colSpan="7" className="payroll-empty">No payroll records for this cycle.</td></tr>}
   </tbody></table></div>
 }
 
 function EmployeeDetail({ item, onClose }) {
   if (!item) return <div className="payroll-alert warning"><AlertTriangle size={17} />The selected payroll record has no employee mapping and is excluded from financial totals.</div>
-  return <div className="payroll-employee-detail"><div><div><span className="payroll-eyebrow">EMPLOYEE PAYROLL RECORD</span><h3>{employeeName(item)}</h3><p>{item.employee_number} · {getDepartmentName(item.department_name) || 'Department not mapped'} · {item.pay_period}</p></div><button className="payroll-secondary" type="button" onClick={onClose}>Close</button></div><div className="payroll-detail-grid">{[['Employee ID', item.employee_id], ['Pay code', item.pay_code || 'BASE_WAGES'], ['Gross', formatMoney(item.gross_salary)], ['PAYE tax', formatMoney(item.paye_tax)], ['NSSF deduction', formatMoney(item.nssf_deduction)], ['Employer pension', formatMoney(item.employer_pension)], ['Employer social contributions', formatMoney(item.employer_social_contribution)], ['Other employer contribution', formatMoney(item.employer_contribution)], ['Bonus', formatMoney(item.bonus_amount)], ['Overtime', formatMoney(item.overtime_amount)], ['Retro adjustment', formatMoney(item.retro_amount)], ['Retro reason', item.retro_reason || 'Not recorded'], ['Retro source', item.retro_source || 'Not recorded'], ['Back-pay verification', item.retro_verified || 'PENDING']].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div>
+  return <div className="payroll-employee-detail"><div><div><span className="payroll-eyebrow">EMPLOYEE PAYROLL RECORD</span><h3>{employeeName(item)}</h3><p>{item.employee_number} · {getDepartmentName(item.department_name) || 'Department not mapped'} · {item.pay_period}</p></div><button className="payroll-secondary" type="button" onClick={onClose}>Close</button></div><div className="payroll-detail-grid">{[['Employee ID', item.employee_id], ['Pay code', item.pay_code || 'BASE_WAGES'], ['Gross', formatMoney(item.gross_salary)], ['PAYE tax', formatMoney(item.paye_tax)], ['NSSF deduction', formatMoney(item.nssf_deduction)], ['Disciplinary penalty', formatMoney(item.disciplinary_deduction)], ['Employer pension', formatMoney(item.employer_pension)], ['Employer social contributions', formatMoney(item.employer_social_contribution)], ['Other employer contribution', formatMoney(item.employer_contribution)], ['Bonus', formatMoney(item.bonus_amount)], ['Overtime', formatMoney(item.overtime_amount)], ['Retro adjustment', formatMoney(item.retro_amount)], ['Retro reason', item.retro_reason || 'Not recorded'], ['Retro source', item.retro_source || 'Not recorded'], ['Back-pay verification', item.retro_verified || 'PENDING']].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></div>
 }

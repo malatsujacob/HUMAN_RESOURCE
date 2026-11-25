@@ -14,6 +14,7 @@ class Payslip(Base):
     gross_salary = Column(Numeric(15, 2), nullable=False)
     paye_tax = Column(Numeric(15, 2), nullable=False)
     nssf_deduction = Column(Numeric(15, 2), nullable=False)
+    disciplinary_deduction = Column(Numeric(15, 2), nullable=False, default=0)
     net_salary = Column(Numeric(15, 2), nullable=False)
     employer_contribution = Column(Numeric(15, 2), nullable=False, default=0)
     employer_pension = Column(Numeric(15, 2), nullable=False, default=0)

@@ -6,10 +6,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.routers.attendance import get_current_user, get_db
 from app.models.attendance import Attendance
+from app.models.disciplinary import DisciplinaryCase, DisciplinaryOutcome
 from app.models.employee import Employee
 from app.models.department import Department
 from app.models.payroll import PayrollAuditEvent, PayrollCycle, PayrollReconciliation, Payslip
@@ -46,6 +48,7 @@ class PayslipResponse(BaseModel):
     gross_salary: Decimal
     paye_tax: Decimal
     nssf_deduction: Decimal
+    disciplinary_deduction: Decimal = Decimal("0")
     net_salary: Decimal
     employer_contribution: Decimal = Decimal("0")
     employer_pension: Decimal = Decimal("0")
@@ -166,6 +169,32 @@ def generate_payroll(
         .all()
     }
 
+    period_start = date.fromisoformat(f"{request.pay_period}-01")
+    if period_start.month == 12:
+        next_period_start = date(period_start.year + 1, 1, 1)
+    else:
+        next_period_start = date(period_start.year, period_start.month + 1, 1)
+    deductions_by_employee = {}
+    penalties = (
+        db.query(DisciplinaryCase.employee_id, DisciplinaryOutcome.deduction_amount)
+        .join(DisciplinaryOutcome, DisciplinaryOutcome.case_id == DisciplinaryCase.id)
+        .filter(
+            DisciplinaryOutcome.payroll_deduction.is_(True),
+            DisciplinaryOutcome.effective_date >= period_start,
+            DisciplinaryOutcome.effective_date < next_period_start,
+            or_(
+                DisciplinaryOutcome.appeal_outcome.is_(None),
+                DisciplinaryOutcome.appeal_outcome != "OVERTURNED",
+            ),
+        )
+        .all()
+    )
+    for employee_id, deduction_amount in penalties:
+        deductions_by_employee[employee_id] = (
+            deductions_by_employee.get(employee_id, Decimal("0"))
+            + round_money(Decimal(deduction_amount or 0))
+        )
+
     payslips = []
     skipped_count = 0
     for employee in employees:
@@ -188,6 +217,13 @@ def generate_payroll(
         gross_salary = round_money(Decimal(employee.base_salary))
         nssf_deduction = round_money(gross_salary * Decimal("0.05"))
         paye_tax = round_money(gross_salary * Decimal("0.10"))
+        disciplinary_deduction = deductions_by_employee.get(employee.id, Decimal("0"))
+        net_salary = gross_salary - nssf_deduction - paye_tax - disciplinary_deduction
+        if net_salary < 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Disciplinary deductions exceed net pay for employee {employee.id} in {request.pay_period}",
+            )
         payslips.append(
             Payslip(
                 employee_id=employee.id,
@@ -195,7 +231,8 @@ def generate_payroll(
                 gross_salary=gross_salary,
                 nssf_deduction=nssf_deduction,
                 paye_tax=paye_tax,
-                net_salary=gross_salary - nssf_deduction - paye_tax,
+                disciplinary_deduction=disciplinary_deduction,
+                net_salary=net_salary,
             )
         )
 
@@ -275,6 +312,7 @@ def get_all_payslips(
             "gross_salary": item.gross_salary,
             "paye_tax": item.paye_tax,
             "nssf_deduction": item.nssf_deduction,
+            "disciplinary_deduction": item.disciplinary_deduction,
             "net_salary": item.net_salary,
             "employer_contribution": item.employer_contribution,
             "employer_pension": item.employer_pension,

@@ -43,6 +43,8 @@ function Home() {
   const [disciplinary,setDisciplinary]=useState([])
   const [exits,setExits]=useState([])
   const [loadError,setLoadError]=useState('')
+  const [requisitionError,setRequisitionError]=useState('')
+  const [dashboardLoading,setDashboardLoading]=useState(false)
   const [dashboardDate,setDashboardDate]=useState(formatDashboardDate)
   const [selectedEmployee,setSelectedEmployee]=useState('')
   const [credentials,setCredentials]=useState(null)
@@ -54,38 +56,65 @@ function Home() {
   const [queueBusy,setQueueBusy]=useState('')
 
   const loadDashboard=useCallback(async()=>{
+    setDashboardLoading(true)
     setLoadError('')
-    const results=await Promise.allSettled([
-      axios.get(`${API_BASE}/employees/`,authConfig()),
-      axios.get(`${API_BASE}/leave/pending`,authConfig()),
-      axios.get(`${API_BASE}/performance/`,authConfig()),
-      axios.get(`${API_BASE}/performance/pending`,authConfig()),
-      axios.get(`${API_BASE}/contracts/`,authConfig()),
-      axios.get(`${API_BASE}/onboarding/pending`,authConfig()),
-      axios.get(`${API_BASE}/recruitment/requisitions`,authConfig()),
-      axios.get(`${API_BASE}/disciplinary/`,authConfig()),
-      axios.get(`${API_BASE}/exit/`,authConfig()),
-    ])
-    const setters=[setEmployees,setLeaves,setReviews,setPendingReviews,setContracts,setOnboarding,setRequisitions,setDisciplinary,setExits]
-    const labels=['employee records','leave requests','performance reviews','performance items awaiting HOD ratings','contract reminders','onboarding records','requisitions','disciplinary cases','exit records']
-    if(results.some(result=>result.status==='rejected'&&result.reason?.response?.status===401)){
-      localStorage.removeItem('token')
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('role')
-      localStorage.removeItem('email')
-      navigate('/login',{replace:true})
-      return
-    }
-    const failures=[]
-    results.forEach((result,index)=>{
-      if(result.status==='fulfilled') setters[index](result.value.data)
-      else if(result.reason?.response?.status!==403){
-        const status=result.reason?.response?.status
-        failures.push(`${labels[index]} (${status?`HTTP ${status}`:result.reason?.code||'network error'})`)
+    try {
+      const results=await Promise.allSettled([
+        axios.get(`${API_BASE}/employees/`,authConfig()),
+        axios.get(`${API_BASE}/leave/pending`,authConfig()),
+        axios.get(`${API_BASE}/performance/`,authConfig()),
+        axios.get(`${API_BASE}/performance/pending`,authConfig()),
+        axios.get(`${API_BASE}/contracts/`,authConfig()),
+        axios.get(`${API_BASE}/onboarding/pending`,authConfig()),
+        axios.get(`${API_BASE}/recruitment/requisitions`,authConfig()),
+        axios.get(`${API_BASE}/disciplinary/`,authConfig()),
+        axios.get(`${API_BASE}/exit/`,authConfig()),
+      ])
+      const setters=[setEmployees,setLeaves,setReviews,setPendingReviews,setContracts,setOnboarding,setRequisitions,setDisciplinary,setExits]
+      const labels=['employee records','leave requests','performance reviews','performance items awaiting HOD ratings','contract reminders','onboarding records','requisitions','disciplinary cases','exit records']
+      if(results.some(result=>result.status==='rejected'&&result.reason?.response?.status===401)){
+        localStorage.removeItem('token')
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('role')
+        localStorage.removeItem('email')
+        navigate('/login',{replace:true})
+        return
       }
-    })
-    if(failures.length)setLoadError(`Could not load: ${failures.join(', ')}.`)
-  },[isHR,navigate])
+      const failures=[]
+      results.forEach((result,index)=>{
+        if(result.status==='fulfilled') {
+          setters[index](result.value.data)
+          if(index===6)setRequisitionError('')
+        } else {
+          const status=result.reason?.response?.status
+          failures.push(`${labels[index]} (${status?`HTTP ${status}`:result.reason?.code||'network error'})`)
+        }
+      })
+      if(failures.length)setLoadError(`Could not load: ${failures.join(', ')}.`)
+    } finally {
+      setDashboardLoading(false)
+    }
+  },[navigate])
+
+  const loadRequisitions=useCallback(async()=>{
+    try {
+      const {data}=await axios.get(`${API_BASE}/recruitment/requisitions`,authConfig())
+      if(!Array.isArray(data))throw new Error('Unexpected requisition response.')
+      setRequisitions(data)
+      setRequisitionError('')
+    } catch(requestError) {
+      if(requestError.response?.status===401){
+        localStorage.removeItem('token')
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('role')
+        localStorage.removeItem('email')
+        navigate('/login',{replace:true})
+        return
+      }
+      const status=requestError.response?.status
+      setRequisitionError(`Could not refresh requisitions (${status?`HTTP ${status}`:requestError.code||requestError.message||'network error'}).`)
+    }
+  },[navigate])
 
   useEffect(()=>{if(isHR)loadDashboard()},[isHR,loadDashboard])
   useEffect(()=>{
@@ -97,6 +126,20 @@ function Home() {
     const timer=window.setInterval(loadDashboard,60000)
     return ()=>window.clearInterval(timer)
   },[isHR,loadDashboard])
+  useEffect(()=>{
+    if(!isHR)return undefined
+    const refreshVisibleDashboard=()=>{
+      if(document.visibilityState==='visible')loadRequisitions()
+    }
+    const timer=window.setInterval(refreshVisibleDashboard,30000)
+    document.addEventListener('visibilitychange',refreshVisibleDashboard)
+    window.addEventListener('focus',refreshVisibleDashboard)
+    return ()=>{
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange',refreshVisibleDashboard)
+      window.removeEventListener('focus',refreshVisibleDashboard)
+    }
+  },[isHR,loadRequisitions])
 
   const departments=useMemo(()=>{
     const byDepartment=new Map()
@@ -168,9 +211,10 @@ function Home() {
   return <section className="module-page">
     <header className="module-heading" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
       <div><p className="eyebrow">{dashboardDate}</p><h1>HR master dashboard</h1><p>People operations, employee updates, and decisions requiring attention.</p></div>
-      <button className="module-secondary-button" type="button" onClick={loadDashboard}>Refresh dashboard</button>
+      <button className="module-secondary-button" type="button" onClick={loadDashboard} disabled={dashboardLoading}>{dashboardLoading?'Refreshing…':'Refresh dashboard'}</button>
     </header>
     {loadError&&<p className="module-alert error" role="alert">{loadError}</p>}
+    {requisitionError&&<p className="module-alert error" role="alert">{requisitionError}</p>}
 
     <section className="summary-grid" aria-label="Live HR statistics">
       {statCards.map(({label,value,detail,icon:Icon,tone})=><article className="summary-card" key={label}><div className="card-topline"><span className={`summary-icon ${tone}`}><Icon size={19} aria-hidden="true"/></span></div><p className="summary-label">{label}</p><strong className="summary-value">{value}</strong><span className="summary-detail">{detail}</span></article>)}
