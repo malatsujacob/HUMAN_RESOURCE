@@ -20,3 +20,9 @@ build/
 
 # Ignore local backup files
 *.bak
+
+# Audit artifacts (not for repo)
+*_AUDIT.txt
+project_files.txt
+*.bak
+*.bak2

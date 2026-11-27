@@ -17,6 +17,7 @@ import PerformanceDashboard from './pages/performance/PerformanceDashboard';
 import DisciplinaryDashboard from './pages/disciplinary/DisciplinaryDashboard';
 import CaseDetail from './pages/disciplinary/CaseDetail';
 import ExitDashboard from './pages/exit/ExitDashboard';
+import ExitDetail from './pages/exit/ExitDetail';
 import AnalyticsDashboard from './pages/analytics/AnalyticsDashboard';
 import ESSPortal from './pages/ess/ESSPortal';
 import TrainingDashboard from './pages/training/TrainingDashboard';
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/disciplinary" element={<ProtectedRoute><DisciplinaryDashboard /></ProtectedRoute>} />
         <Route path="/disciplinary/:id" element={<ProtectedRoute><CaseDetail /></ProtectedRoute>} />
         <Route path="/exit" element={<ProtectedRoute><ExitDashboard /></ProtectedRoute>} />
+        <Route path="/exit/:id" element={<ProtectedRoute><ExitDetail /></ProtectedRoute>} />
         <Route path="/analytics" element={<ProtectedRoute><AnalyticsDashboard /></ProtectedRoute>} />
         
         {/* Fallback */}

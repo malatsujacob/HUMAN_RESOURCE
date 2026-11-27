@@ -265,3 +265,23 @@ def upgrade_exit_clearance_items() -> None:
         for statement in statements:
             if statement.strip():
                 connection.execute(text(statement))
+
+
+def upgrade_exit_full() -> None:
+    migration_path = MIGRATIONS_DIR / "20261125_exit_full.sql"
+    raw = migration_path.read_text(encoding="utf-8-sig")  # strips BOM
+    lines = []
+    for line in raw.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("--"):
+            continue
+        lines.append(line)
+    sql = "\n".join(lines)
+    statements = sql.split(";")
+    with engine.begin() as connection:
+        for statement in statements:
+            if statement.strip():
+                connection.execute(text(statement))
+

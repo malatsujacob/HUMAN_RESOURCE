@@ -106,3 +106,66 @@ export async function updateDisciplinaryAppeal(caseId, payload) {
   const { data } = await api.put(`/disciplinary/${caseId}/appeal`, payload)
   return data
 }
+
+
+// ---- Exit Phase 2 API ----
+
+export async function getExitDetail(exitId) {
+  const { data } = await api.get(`/exit/${exitId}`)
+  return data
+}
+
+export async function updateExitDetails(exitId, payload) {
+  const { data } = await api.put(`/exit/${exitId}`, payload)
+  return data
+}
+
+export async function upsertExitInterview(exitId, payload) {
+  const { data } = await api.post(`/exit/${exitId}/interview`, payload)
+  return data
+}
+
+export async function upsertExitFinalPay(exitId, payload) {
+  const { data } = await api.post(`/exit/${exitId}/final-pay`, payload)
+  return data
+}
+
+export async function revokeExitAccess(exitId) {
+  const { data } = await api.post(`/exit/${exitId}/revoke-access`)
+  return data
+}
+
+export async function deleteExitInterview(exitId) {
+  const { data } = await api.delete(`/exit/${exitId}/interview`)
+  return data
+}
+
+export async function deleteExitFinalPay(exitId) {
+  const { data } = await api.delete(`/exit/${exitId}/final-pay`)
+  return data
+}
+
+export async function checkExitComplete(exitId) {
+  const { data } = await api.get(`/exit/${exitId}/complete-check`)
+  return data
+}
+
+export async function getExitClearanceItems(exitId) {
+  const { data } = await api.get(`/exit/${exitId}/clearance-items`)
+  return data
+}
+
+export async function updateExitClearanceItem(itemId, payload) {
+  const { data } = await api.put(`/exit/clearance-items/${itemId}`, payload)
+  return data
+}
+
+export async function getExitClearanceProgress(exitId) {
+  const { data } = await api.get(`/exit/${exitId}/clearance-progress`)
+  return data
+}
+
+export async function deleteExitClearanceItem(itemId) {
+  const { data } = await api.delete(`/exit/clearance-items/${itemId}`)
+  return data
+}

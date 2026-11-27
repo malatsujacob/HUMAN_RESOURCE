@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.routers.attendance import get_current_user, get_db
 from app.models.contract import Contract
 from app.models.employee import Employee
-from app.models.exit import EmployeeExit, ExitClearanceItem
+from app.models.exit import EmployeeExit, ExitClearanceItem, ExitInterview, ExitFinalPay
 from app.models.user import User
 
 router = APIRouter()
@@ -269,3 +269,267 @@ def delete_clearance_item(
     db.delete(item)
     db.commit()
     return {"message": "Clearance item deleted."}
+
+
+# ===========================================================================
+# EXIT PHASE 2 — Detail, Interview, Final Pay
+# ===========================================================================
+
+class ExitUpdate(BaseModel):
+    exit_type: Optional[str] = None
+    resignation_date: Optional[date] = None
+    notice_period_days: Optional[int] = None
+    notice_served: Optional[bool] = None
+    rehire_eligible: Optional[bool] = None
+    access_revoked: Optional[bool] = None
+
+
+class InterviewUpsert(BaseModel):
+    conducted_by_user_id: Optional[UUID] = None
+    interview_date: Optional[date] = None
+    reason_category: Optional[str] = None
+    feedback_notes: Optional[str] = None
+    would_recommend: Optional[bool] = None
+    rehire_eligible: Optional[bool] = None
+
+
+class FinalPayUpsert(BaseModel):
+    basic_salary: float = 0
+    leave_payout: float = 0
+    gratuity: float = 0
+    notice_pay: float = 0
+    other_earnings: float = 0
+    loan_deduction: float = 0
+    advance_deduction: float = 0
+    asset_deduction: float = 0
+    other_deductions: float = 0
+    payment_date: Optional[date] = None
+    paid: bool = False
+    notes: Optional[str] = None
+
+
+def exit_full_payload(e: EmployeeExit) -> dict:
+    return {
+        "id": str(e.id),
+        "employee_id": str(e.employee_id),
+        "last_working_day": e.last_working_day.isoformat() if e.last_working_day else None,
+        "reason": e.reason,
+        "exit_type": e.exit_type,
+        "resignation_date": e.resignation_date.isoformat() if e.resignation_date else None,
+        "notice_period_days": e.notice_period_days,
+        "notice_served": e.notice_served,
+        "rehire_eligible": e.rehire_eligible,
+        "access_revoked": e.access_revoked,
+        "access_revoked_at": e.access_revoked_at.isoformat() if e.access_revoked_at else None,
+        "clearance_status": e.clearance_status,
+        "clearance_note": e.clearance_note,
+        "clearance_items": [
+            {
+                "id": str(i.id),
+                "item_code": i.item_code,
+                "item_name": i.item_name,
+                "status": i.status,
+                "cleared_by_user_id": str(i.cleared_by_user_id) if i.cleared_by_user_id else None,
+                "cleared_at": i.cleared_at.isoformat() if i.cleared_at else None,
+                "notes": i.notes,
+            }
+            for i in e.clearance_items
+        ],
+        "interview": (
+            {
+                "id": str(e.interview.id),
+                "conducted_by_user_id": str(e.interview.conducted_by_user_id) if e.interview.conducted_by_user_id else None,
+                "interview_date": e.interview.interview_date.isoformat() if e.interview.interview_date else None,
+                "reason_category": e.interview.reason_category,
+                "feedback_notes": e.interview.feedback_notes,
+                "would_recommend": e.interview.would_recommend,
+                "rehire_eligible": e.interview.rehire_eligible,
+            }
+            if e.interview else None
+        ),
+        "final_pay": (
+            {
+                "id": str(e.final_pay.id),
+                "basic_salary": float(e.final_pay.basic_salary),
+                "leave_payout": float(e.final_pay.leave_payout),
+                "gratuity": float(e.final_pay.gratuity),
+                "notice_pay": float(e.final_pay.notice_pay),
+                "other_earnings": float(e.final_pay.other_earnings),
+                "loan_deduction": float(e.final_pay.loan_deduction),
+                "advance_deduction": float(e.final_pay.advance_deduction),
+                "asset_deduction": float(e.final_pay.asset_deduction),
+                "other_deductions": float(e.final_pay.other_deductions),
+                "net_pay": float(e.final_pay.net_pay),
+                "payment_date": e.final_pay.payment_date.isoformat() if e.final_pay.payment_date else None,
+                "paid": e.final_pay.paid,
+                "notes": e.final_pay.notes,
+            }
+            if e.final_pay else None
+        ),
+    }
+
+
+@router.get("/{exit_id}")
+def get_exit_detail(
+    exit_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    exit_record = db.query(EmployeeExit).filter(EmployeeExit.id == exit_id).first()
+    if not exit_record:
+        raise HTTPException(status_code=404, detail="Exit record not found.")
+    return exit_full_payload(exit_record)
+
+
+@router.put("/{exit_id}")
+def update_exit(
+    exit_id: UUID,
+    request: ExitUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    exit_record = db.query(EmployeeExit).filter(EmployeeExit.id == exit_id).first()
+    if not exit_record:
+        raise HTTPException(status_code=404, detail="Exit record not found.")
+    for field, value in request.model_dump(exclude_unset=True).items():
+        setattr(exit_record, field, value)
+    if request.access_revoked and not exit_record.access_revoked_at:
+        exit_record.access_revoked_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(exit_record)
+    return exit_full_payload(exit_record)
+
+
+@router.post("/{exit_id}/interview")
+def upsert_interview(
+    exit_id: UUID,
+    request: InterviewUpsert,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    exit_record = db.query(EmployeeExit).filter(EmployeeExit.id == exit_id).first()
+    if not exit_record:
+        raise HTTPException(status_code=404, detail="Exit record not found.")
+    interview = db.query(ExitInterview).filter(ExitInterview.exit_id == exit_id).first()
+    if not interview:
+        interview = ExitInterview(exit_id=exit_id)
+        db.add(interview)
+    for field, value in request.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(interview, field, value)
+    if not interview.conducted_by_user_id:
+        interview.conducted_by_user_id = user.id
+    db.commit()
+    db.refresh(exit_record)
+    return exit_full_payload(exit_record)
+
+
+@router.post("/{exit_id}/final-pay")
+def upsert_final_pay(
+    exit_id: UUID,
+    request: FinalPayUpsert,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    exit_record = db.query(EmployeeExit).filter(EmployeeExit.id == exit_id).first()
+    if not exit_record:
+        raise HTTPException(status_code=404, detail="Exit record not found.")
+    fp = db.query(ExitFinalPay).filter(ExitFinalPay.exit_id == exit_id).first()
+    if not fp:
+        fp = ExitFinalPay(exit_id=exit_id)
+        db.add(fp)
+    data = request.model_dump(exclude_unset=True)
+    for key in ["basic_salary", "leave_payout", "gratuity", "notice_pay", "other_earnings",
+                "loan_deduction", "advance_deduction", "asset_deduction", "other_deductions",
+                "payment_date", "paid", "notes"]:
+        if key in data:
+            setattr(fp, key, data[key])
+    fp.net_pay = (
+        float(fp.basic_salary) + float(fp.leave_payout) + float(fp.gratuity) +
+        float(fp.notice_pay) + float(fp.other_earnings)
+        - float(fp.loan_deduction) - float(fp.advance_deduction)
+        - float(fp.asset_deduction) - float(fp.other_deductions)
+    )
+    if not fp.calculated_by_user_id:
+        fp.calculated_by_user_id = user.id
+    db.commit()
+    db.refresh(exit_record)
+    return exit_full_payload(exit_record)
+
+
+@router.post("/{exit_id}/revoke-access")
+def revoke_access(
+    exit_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    exit_record = db.query(EmployeeExit).filter(EmployeeExit.id == exit_id).first()
+    if not exit_record:
+        raise HTTPException(status_code=404, detail="Exit record not found.")
+    exit_record.access_revoked = True
+    exit_record.access_revoked_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(exit_record)
+    return exit_full_payload(exit_record)
+
+
+@router.delete("/{exit_id}/interview")
+def delete_interview(
+    exit_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    interview = db.query(ExitInterview).filter(ExitInterview.exit_id == exit_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found.")
+    db.delete(interview)
+    db.commit()
+    return {"message": "Interview deleted."}
+
+
+@router.delete("/{exit_id}/final-pay")
+def delete_final_pay(
+    exit_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    fp = db.query(ExitFinalPay).filter(ExitFinalPay.exit_id == exit_id).first()
+    if not fp:
+        raise HTTPException(status_code=404, detail="Final pay not found.")
+    db.delete(fp)
+    db.commit()
+    return {"message": "Final pay deleted."}
+
+
+@router.get("/{exit_id}/complete-check")
+def complete_check(
+    exit_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_hr(user)
+    e = db.query(EmployeeExit).filter(EmployeeExit.id == exit_id).first()
+    if not e:
+        raise HTTPException(status_code=404, detail="Exit record not found.")
+    items_total = len(e.clearance_items)
+    items_cleared = sum(1 for i in e.clearance_items if i.status == "CLEARED")
+    return {
+        "exit_id": str(e.id),
+        "clearance_items_done": items_total > 0 and items_cleared == items_total,
+        "interview_done": e.interview is not None,
+        "final_pay_done": e.final_pay is not None and e.final_pay.paid,
+        "access_revoked": e.access_revoked,
+        "fully_complete": (
+            items_total > 0 and items_cleared == items_total
+            and e.interview is not None
+            and e.final_pay is not None and e.final_pay.paid
+            and e.access_revoked
+        ),
+    }
