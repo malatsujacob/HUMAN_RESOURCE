@@ -26,3 +26,5 @@ build/
 project_files.txt
 *.bak
 *.bak2
+
+backend/EXIT_CURRENT.txt
