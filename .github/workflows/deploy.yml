@@ -41,7 +41,8 @@ jobs:
         run: |
           scp -i ~/.ssh/id_pem -r frontend/dist/* "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/app/frontend_dist/"
           scp -i ~/.ssh/id_pem -r backend/app backend/migrations "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/app/backend/"
+          scp -i ~/.ssh/id_pem backend/requirements.txt backend/deploy.sh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:~/app/backend/"
 
-      - name: Restart services on EC2
+      - name: Run remote deployment script on EC2
         run: |
-          ssh -i ~/.ssh/id_pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "sudo systemctl restart hr-backend || true; sudo systemctl reload nginx || true"
+          ssh -i ~/.ssh/id_pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "chmod +x ~/app/backend/deploy.sh && bash ~/app/backend/deploy.sh"
